@@ -9,7 +9,7 @@ from psycopg import Connection
 from app.auth import current_user_id
 from app.database import get_connection
 from app.errors import ApiError
-from app.validation import capture_id
+from app.validation import capture_id, search_query
 
 router = APIRouter(prefix="/api/v1/items")
 PAGE_SIZE = 30
@@ -33,11 +33,13 @@ def _serialize_item(row: dict[str, Any]) -> dict[str, object]:
 def list_items(
     connection: Annotated[Connection, Depends(get_connection)],
     user_id: Annotated[str | None, Depends(current_user_id)],
+    q: str | None = Query(default=None),
     before: str | None = Query(default=None),
 ) -> dict[str, object]:
     if not user_id:
         raise ApiError("Authentication required.", 401)
 
+    query = search_query(q)
     cursor_id: UUID | None = capture_id(before) if before is not None else None
     cursor = None
     if cursor_id:
@@ -57,6 +59,13 @@ def list_items(
     if cursor:
         clauses.append("(created_at, id) < (%s, %s)")
         params.extend((cursor["created_at"], cursor["id"]))
+    if query:
+        clauses.append(
+            "to_tsvector('english', title || ' ' || summary || ' ' || "
+            "labels_json::text || ' ' || candidate_tasks_json::text) "
+            "@@ websearch_to_tsquery('english', %s)"
+        )
+        params.append(query)
 
     rows = connection.execute(
         f"""

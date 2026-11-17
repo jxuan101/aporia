@@ -681,6 +681,8 @@ def test_items_are_listed_and_read_only_with_user_scoping(
     assert listed.json()["items"][0]["id"] == item_id
     assert listed.json()["items"][0]["captureId"] == capture["id"]
     assert listed.json()["items"][0]["title"] == "Remember the library book"
+    item_search = client.get("/api/v1/items?q=book", headers=owner_headers)
+    assert [item["id"] for item in item_search.json()["items"]] == [item_id]
 
     detail = client.get(f"/api/v1/items/{item_id}", headers=owner_headers)
     assert detail.status_code == 200
@@ -693,3 +695,31 @@ def test_items_are_listed_and_read_only_with_user_scoping(
         client.get(f"/api/v1/items/{item_id}", headers=other_headers).status_code == 404
     )
     assert client.get("/api/v1/items", headers=other_headers).json()["items"] == []
+
+
+def test_capture_full_text_search_stems_terms_and_stays_user_scoped(
+    client: TestClient,
+    identities: dict[str, str],
+) -> None:
+    owner_headers = {"Authorization": f"Bearer {identities['token_a']}"}
+    other_headers = {"Authorization": f"Bearer {identities['token_b']}"}
+    owner_capture = client.post(
+        "/api/v1/captures",
+        headers=owner_headers,
+        json={"text": "Yesterday I painted a watercolor landscape."},
+    ).json()["capture"]
+    client.post(
+        "/api/v1/captures",
+        headers=other_headers,
+        json={"text": "Yesterday I painted a watercolor landscape."},
+    )
+
+    owner_results = client.get("/api/v1/captures?q=paint", headers=owner_headers)
+    other_results = client.get("/api/v1/captures?q=paint", headers=other_headers)
+
+    assert owner_results.status_code == 200
+    assert [item["id"] for item in owner_results.json()["captures"]] == [
+        owner_capture["id"]
+    ]
+    assert len(other_results.json()["captures"]) == 1
+    assert owner_results.json()["captures"][0]["currentText"].startswith("Yesterday")

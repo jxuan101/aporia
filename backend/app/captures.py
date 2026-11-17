@@ -53,12 +53,11 @@ def list_captures(
         clauses.append("(created_at, id) < (%s, %s)")
         params.extend((cursor["created_at"], cursor["id"]))
     if query:
-        escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        pattern = f"%{escaped}%"
         clauses.append(
-            "(raw_text ILIKE %s ESCAPE E'\\\\' OR current_text ILIKE %s ESCAPE E'\\\\')"
+            "to_tsvector('english', raw_text || ' ' || current_text) "
+            "@@ websearch_to_tsquery('english', %s)"
         )
-        params.extend((pattern, pattern))
+        params.append(query)
 
     rows = connection.execute(
         f"""

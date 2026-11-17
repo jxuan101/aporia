@@ -221,8 +221,13 @@ export async function listCaptures(
 export async function listItems(
   token: string,
   before?: string,
+  search = "",
 ): Promise<z.infer<typeof itemListSchema>> {
-  const query = before ? `?before=${encodeURIComponent(before)}` : "";
+  const params = new URLSearchParams();
+  if (before) params.set("before", before);
+  if (search) params.set("q", search);
+  const serializedParams = params.toString();
+  const query = serializedParams ? `?${serializedParams}` : "";
   const response = await request(`/api/v1/items${query}`, { token });
   return itemListSchema.parse(response);
 }

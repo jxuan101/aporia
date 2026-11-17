@@ -52,13 +52,15 @@ Configure Google OAuth clients in the same Google Cloud project:
 
 Google sign-in uses native code, so Expo Go is not supported. Build and run a development app with `npm run ios` or `npm run android` from `mobile/`; these commands require the corresponding local platform toolchain. Start Metro separately with `npm start` in `mobile/` when needed.
 
-The API supports Google sign-in, user-scoped capture creation/edit/deletion, literal capture search, paginated capture and item lists, item details, JSON export, explicit AI processing, and suggestion accept/edit/reject. Session tokens are random, revocable bearer tokens stored in iOS Keychain or Android Keystore through Expo SecureStore. Google ID tokens are verified by the backend and are not retained; Drive access is not requested. Editing keeps the original capture, and deleting remains permanent.
+The API supports Google sign-in, user-scoped capture creation/edit/deletion, PostgreSQL full-text search across captures and saved-item metadata, paginated capture and item lists, item details, JSON export, explicit AI processing, and suggestion accept/edit/reject. Session tokens are random, revocable bearer tokens stored in iOS Keychain or Android Keystore through Expo SecureStore. Google ID tokens are verified by the backend and are not retained; Drive access is not requested. Editing keeps the original capture, and deleting remains permanent.
 
 Apply migrations after updating the backend, then run the API and a worker in separate terminals. Set `GROQ_API_KEY` and `GROQ_MODEL` in the root `.env.local` before starting the worker. Processing starts only when an authenticated client explicitly calls `POST /api/v1/captures/{capture_id}/process`; poll `GET /api/v1/agent/jobs/{job_id}` for job state and any proposal. The mobile app lets the user review the proposal, edit its title and summary, then accept or reject it. Acceptance creates one user-owned item; rejection leaves the original capture intact. Editing a capture makes its pending proposals stale. Saving a capture never waits for or depends on Groq.
 
 Review decisions use `POST /api/v1/agent/suggestions/{suggestion_id}/accept` with `{"proposal": ...}` or `POST /api/v1/agent/suggestions/{suggestion_id}/reject`. Acceptance revalidates the full versioned schema and task evidence against the current capture. Related-item links are not accepted yet; they remain a later roadmap item.
 
 Accepted items are available from `GET /api/v1/items` and `GET /api/v1/items/{item_id}`. Both routes scope results to the authenticated user. The mobile app includes a paginated saved-items list and a read-only detail view with the original capture for context.
+
+Capture search uses `GET /api/v1/captures?q=...`; saved-item search uses `GET /api/v1/items?q=...`. Queries use PostgreSQL's English full-text dictionary with web-style phrase and OR syntax. Both search paths retain user scoping and cursor pagination. The mobile search screen shows capture matches and saved-item matches, which open their capture card or item detail respectively.
 
 ```sh
 cd backend
@@ -119,7 +121,7 @@ A person with many ideas, responsibilities, and bits of information who wants to
 | AI processing | Classify an entry as task, idea, note, question, project, or reference | The agent returns structured, validated data |
 | Suggested actions | Extract possible next steps and due-date language | Suggestions are shown separately from confirmed tasks |
 | User approval | Accept, edit, or reject AI suggestions | No destructive or consequential action occurs silently |
-| Search | Search captured content and metadata | Results show relevant excerpts and open the original item |
+| Search | Search captured content and saved-item metadata | Results show matching captures or items and open their source |
 | Basic organization | Assign labels and link related items | Users can edit or remove labels and links |
 | Daily review | Show unprocessed items and suggested priorities | User can accept, dismiss, or defer suggestions |
 | Data export | Export personal data in JSON or Markdown | Export includes user-created content and metadata |
@@ -419,7 +421,7 @@ A suggested solo-developer sequence. Time estimates are planning ranges, not com
 
 ### Phase 3 — Search and connections (1–2 weeks)
 
-- Add PostgreSQL full-text search.
+- [x] Add PostgreSQL full-text search across captures and saved-item metadata.
 - Suggest related items using simple text signals first.
 - Add relationship review and removal.
 - Evaluate embeddings only if keyword search is insufficient.
@@ -501,7 +503,7 @@ Recommended order:
 8. Add the model adapter.
 9. Add the background job lifecycle.
 10. Build suggestion review.
-11. Add full-text search.
+11. [x] Add full-text search.
 12. Add related-item suggestions.
 13. Build daily review.
 14. Add end-to-end tests and beta-readiness checks.

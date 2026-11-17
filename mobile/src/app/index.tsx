@@ -19,6 +19,7 @@ import {
   acceptProcessingSuggestion,
   ApiError,
   type AgentJob,
+  type BrainDumpItem,
   type Capture,
   type ProcessingProposal,
   type SuggestionDecision,
@@ -28,6 +29,7 @@ import {
   exportCaptures,
   getProcessingJob,
   listCaptures,
+  listItems,
   rejectProcessingSuggestion,
   requestCaptureProcessing,
   revokeSession,
@@ -508,6 +510,8 @@ export default function InboxScreen() {
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [captures, setCaptures] = useState<Capture[]>([]);
+  const [searchItems, setSearchItems] = useState<BrainDumpItem[]>([]);
+  const [searchItemsCursor, setSearchItemsCursor] = useState<string | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [captureText, setCaptureText] = useState("");
   const [searchText, setSearchText] = useState("");
@@ -518,6 +522,8 @@ export default function InboxScreen() {
     if (requestError instanceof ApiError && requestError.status === 401) {
       setSessionToken(null);
       setCaptures([]);
+      setSearchItems([]);
+      setSearchItemsCursor(null);
       setError("Your session expired. Sign in again to continue.");
       void SecureStore.deleteItemAsync(SESSION_KEY).catch(() => {
         setError(
@@ -622,6 +628,8 @@ export default function InboxScreen() {
       await SecureStore.deleteItemAsync(SESSION_KEY);
       setSessionToken(null);
       setCaptures([]);
+      setSearchItems([]);
+      setSearchItemsCursor(null);
       setNextCursor(null);
       await clearGoogleSignIn();
       if (revokeError) {
@@ -662,7 +670,16 @@ export default function InboxScreen() {
     setBusy(true);
     setError(null);
     try {
-      await loadInbox(sessionToken, query);
+      const [captureResults, itemResults] = await Promise.all([
+        listCaptures(sessionToken, query),
+        query
+          ? listItems(sessionToken, undefined, query)
+          : Promise.resolve({ items: [], nextCursor: null }),
+      ]);
+      setCaptures(captureResults.captures);
+      setNextCursor(captureResults.nextCursor);
+      setSearchItems(itemResults.items);
+      setSearchItemsCursor(itemResults.nextCursor);
       setActiveSearch(query);
       Keyboard.dismiss();
     } catch (searchError) {
@@ -680,6 +697,27 @@ export default function InboxScreen() {
     setError(null);
     try {
       await loadInbox(sessionToken, activeSearch, nextCursor);
+    } catch (loadError) {
+      handleError(loadError);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleLoadMoreSearchItems() {
+    if (!sessionToken || !searchItemsCursor || !activeSearch) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await listItems(
+        sessionToken,
+        searchItemsCursor,
+        activeSearch,
+      );
+      setSearchItems((current) => [...current, ...result.items]);
+      setSearchItemsCursor(result.nextCursor);
     } catch (loadError) {
       handleError(loadError);
     } finally {
@@ -948,7 +986,7 @@ export default function InboxScreen() {
               maxLength={200}
               onChangeText={setSearchText}
               onSubmitEditing={() => void handleSearch()}
-              placeholder="Search your captures"
+              placeholder="Search captures and saved items"
               placeholderTextColor="#7E867D"
               returnKeyType="search"
               style={styles.searchInput}
@@ -970,6 +1008,8 @@ export default function InboxScreen() {
                   onPress={() => {
                     setSearchText("");
                     setActiveSearch("");
+                    setSearchItems([]);
+                    setSearchItemsCursor(null);
                     setBusy(true);
                     setError(null);
                     void loadInbox(sessionToken)
@@ -1010,13 +1050,19 @@ export default function InboxScreen() {
             <Text style={styles.sectionTitle}>
               {activeSearch ? "Search results" : "Inbox"}
             </Text>
-            <Text style={styles.countText}>{captures.length}</Text>
+            <Text style={styles.countText}>
+              {activeSearch
+                ? `${captures.length} captures · ${searchItems.length} saved items`
+                : captures.length}
+            </Text>
           </View>
 
           {captures.length === 0 ? (
             <Text style={styles.emptyState}>
               {activeSearch
-                ? "No captures match that search."
+                ? searchItems.length
+                  ? "No captures match. Saved item results are below."
+                  : "No captures or saved items match that search."
                 : "No captures yet. Add a thought above whenever you are ready."}
             </Text>
           ) : (
@@ -1032,6 +1078,53 @@ export default function InboxScreen() {
                 onRejectSuggestion={handleRejectSuggestion}
               />
             ))
+          )}
+
+          {activeSearch && searchItems.length > 0 && (
+            <>
+              <View style={styles.inboxHeader}>
+                <Text style={styles.sectionTitle}>Saved items</Text>
+                <Text style={styles.countText}>{searchItems.length}</Text>
+              </View>
+              {searchItems.map((item) => (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open ${item.title}, ${item.type}`}
+                  key={item.id}
+                  onPress={() =>
+                    router.push({
+                      pathname: "./items/[itemId]",
+                      params: { itemId: item.id },
+                    })
+                  }
+                  style={({ pressed }) => [
+                    styles.searchItemCard,
+                    pressed && styles.pressedButton,
+                  ]}
+                >
+                  <Text style={styles.suggestionType}>{item.type}</Text>
+                  <Text style={styles.suggestionTitle}>{item.title}</Text>
+                  <Text style={styles.suggestionSummary}>{item.summary}</Text>
+                  {item.labels.length > 0 && (
+                    <Text style={styles.suggestionDetail}>
+                      Labels: {item.labels.join(", ")}
+                    </Text>
+                  )}
+                </Pressable>
+              ))}
+              {searchItemsCursor && (
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={busy}
+                  onPress={() => void handleLoadMoreSearchItems()}
+                  style={styles.loadMoreButton}
+                >
+                  <Text style={styles.secondaryButtonText}>
+                    {busy ? "Loading..." : "Load more saved items"}
+                  </Text>
+                </Pressable>
+              )}
+            </>
           )}
 
           {nextCursor && (
@@ -1300,6 +1393,14 @@ const styles = StyleSheet.create({
     padding: 18,
   },
   captureCard: {
+    backgroundColor: "#FFFFFF",
+    borderColor: "#E5E3DA",
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: 12,
+    padding: 15,
+  },
+  searchItemCard: {
     backgroundColor: "#FFFFFF",
     borderColor: "#E5E3DA",
     borderRadius: 16,
