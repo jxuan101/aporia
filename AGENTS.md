@@ -72,11 +72,12 @@ Suggested boundaries:
 - `review`: queues and user decisions.
 - `privacy`: export, deletion, retention, and data access.
 
-## 5. TypeScript and code quality
+## 5. Python, TypeScript, and code quality
 
-- Use strict TypeScript. Avoid `any`; use `unknown` and narrow it.
+- Keep the mobile client in strict TypeScript. Avoid `any`; use `unknown` and narrow it.
+- Add Python type hints to backend code. Avoid `Any` unless a boundary requires it, then validate and narrow immediately.
 - Prefer small pure functions for parsing, normalization, and business rules.
-- Use Zod or the project's established validator at trust boundaries.
+- Validate FastAPI request bodies and model output at trust boundaries; validate mobile inputs with Zod.
 - Avoid unsafe type assertions. If unavoidable, explain and isolate them.
 - Use descriptive names and explicit return types for exported domain functions.
 - Handle errors deliberately; do not swallow exceptions.
@@ -236,12 +237,3 @@ For implementation tasks, finish with:
 
 Be concise and factual. Do not claim completion beyond the evidence available.
 
-<!-- BEGIN:nextjs-agent-rules -->
-
-## This is NOT the Next.js you know
-
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
-
-This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
-
-<!-- END:nextjs-agent-rules -->

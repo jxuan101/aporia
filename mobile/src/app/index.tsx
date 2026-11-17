@@ -239,7 +239,18 @@ export default function InboxScreen() {
       setSessionToken(session.token);
       await loadInbox(session.token);
     } catch (signInError) {
-      handleError(signInError);
+      const isGoogleDeveloperError =
+        typeof signInError === "object" &&
+        signInError !== null &&
+        "code" in signInError &&
+        signInError.code === "DEVELOPER_ERROR";
+      if (isGoogleDeveloperError) {
+        setError(
+          "Google rejected this app’s OAuth setup. Confirm the configured ID is a Web client from the same Google Cloud project as the Android client for com.braindump.mobile.",
+        );
+      } else {
+        handleError(signInError);
+      }
     } finally {
       setBusy(false);
     }

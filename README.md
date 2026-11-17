@@ -8,21 +8,29 @@ The product is not intended to be another generic chatbot or a complex project-m
 
 ## Getting started
 
-BrainDump is now an iOS and Android app built with Expo and React Native. The Next.js project is a private API backend with PostgreSQL persistence; there is no browser-based inbox. AI processing is not implemented.
+BrainDump is now an iOS and Android app built with Expo and React Native. A private FastAPI backend provides PostgreSQL-backed capture and account APIs; there is no browser-based inbox. AI processing is not implemented.
 
-Requirements: Node.js 20.9 or later, npm, Docker Compose, and Xcode (iOS) or Android Studio (Android) for local native builds.
+Requirements: Python 3.11 or later, Docker Compose, Node.js and npm for the mobile app, and Xcode (iOS) or Android Studio (Android) for local native builds.
 
-Start the backend from the repository root:
+Start PostgreSQL from the repository root:
 
 ```sh
-npm install
 cp .env.example .env.local # only if you do not already have a local env file
 docker compose up -d db
-npm run db:migrate
-npm run dev
 ```
 
-If the root `.env.local` already exists, preserve it and add/update `AUTH_GOOGLE_ID` with the Google **Web application** OAuth client ID. The backend verifies native Google ID tokens against this audience. Do not put client secrets in the mobile app; the native sign-in flow does not use a client secret.
+Start the Python API in another terminal:
+
+```sh
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+python -m app.migrate
+uvicorn app.main:app --reload --host 0.0.0.0 --port 3000
+```
+
+If the root `.env.local` already exists, preserve it and set `AUTH_GOOGLE_ID` to the Google **Web application** OAuth client ID. The Android OAuth client ID is a separate credential and cannot be used as the backend audience. The backend verifies native Google ID tokens against the Web client ID. Do not put client secrets in the mobile app; native sign-in does not use a client secret.
 
 Set up the mobile app in a second terminal:
 
@@ -36,17 +44,17 @@ If `mobile/.env.local` already exists, preserve it and add/update its values. Se
 
 Configure Google OAuth clients in the same Google Cloud project:
 
-- Set `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` in `mobile/.env.local` to the same web client ID as `AUTH_GOOGLE_ID`.
+- Set `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` in `mobile/.env.local` to the same Web client ID as `AUTH_GOOGLE_ID`.
 - Set `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` to the iOS OAuth client ID. The app derives its iOS URL scheme from this value.
 - Register the Android package `com.braindump.mobile` and the signing certificate SHA-1 fingerprints in Google Cloud. For local builds, obtain the debug fingerprint after generating the native project.
 
 Google sign-in uses native code, so Expo Go is not supported. Build and run a development app with `npm run ios` or `npm run android` from `mobile/`; these commands require the corresponding local platform toolchain. Start Metro separately with `npm start` in `mobile/` when needed.
 
-The mobile API supports Google sign-in, user-scoped capture creation/edit/deletion, literal search, paginated inbox results, and JSON export. Session tokens are random, revocable bearer tokens stored in iOS Keychain or Android Keystore through Expo SecureStore. Google ID tokens are verified by the backend and are not retained; Drive access is not requested. Editing keeps the original capture, and deleting remains permanent.
+The API supports Google sign-in, user-scoped capture creation/edit/deletion, literal search, paginated inbox results, and JSON export. Session tokens are random, revocable bearer tokens stored in iOS Keychain or Android Keystore through Expo SecureStore. Google ID tokens are verified by the backend and are not retained; Drive access is not requested. Editing keeps the original capture, and deleting remains permanent.
 
 Google identities are not automatically linked by email. Existing data remains attached to its original Google or GitHub identity unless the same Google account is already linked or an explicit migration is performed.
 
-Generate a migration after changing the database schema with `npm run db:generate`, then apply it using `npm run db:migrate`. Run backend checks with `npm test`, `npm run lint`, and `npm run build`; run mobile checks with `cd mobile && npm run lint && npm run typecheck`.
+Add versioned SQL migrations under `backend/migrations/` and apply them with `cd backend && python -m app.migrate`. Pure backend tests run with `cd backend && pip install -e '.[test]' && pytest`. The database integration tests require a dedicated local database named with the `_test` suffix; create `braindump_test` once with `docker compose exec -T db createdb -U braindump braindump_test`, then run `BRAINDUMP_TEST_DATABASE_URL=postgresql://braindump:braindump-local@127.0.0.1:5432/braindump_test pytest`. Run Python lint with `ruff check app tests` and mobile checks with `cd mobile && npm run lint && npm run typecheck`.
 
 ## 1. Product vision
 
@@ -289,17 +297,17 @@ The following is a practical default, not a requirement. Keep the app portable a
 |---|---|---|
 | Mobile app | Expo + React Native + TypeScript | Native iOS and Android clients from one codebase |
 | Navigation | Expo Router | File-based, native navigation and deep links |
-| Backend/API | Next.js route handlers + TypeScript | Existing modular backend and typed API boundary |
+| Backend/API | FastAPI + Python | Keep API workflows and future AI processing in Python |
 | UI | React Native components | Native controls with accessible labels and touch targets |
 | Database | PostgreSQL | Reliable relational storage and full-text search |
-| Database access | Drizzle ORM | Typed schema and migrations |
-| Validation | Zod | Runtime validation for forms and AI output |
+| Database access | Psycopg 3 + versioned SQL migrations | Direct, parameterized PostgreSQL access with explicit ownership queries |
+| Validation | FastAPI request handling + typed validators | Validate untrusted mobile input at API boundaries |
 | Background jobs | PostgreSQL-backed job table initially | Avoid adding Redis or a queue service too early |
-| AI interface | Provider-neutral TypeScript adapter | Swap hosted or local models without rewriting the app |
+| AI interface | Provider-neutral Python adapter | Swap hosted or local models without rewriting the app |
 | AI output | Structured JSON / schema-constrained output where supported | Predictable processing |
 | Authentication | Native Google Sign-In + server-verified ID tokens | Keep provider credentials and session authorization on the server |
 | Mobile sessions | Random database-backed bearer tokens in Expo SecureStore | Revocable sessions with OS-protected local storage |
-| Testing | Vitest + Expo Doctor + native development builds | Validate domain logic, SDK compatibility, and platform bundles |
+| Testing | Pytest + Expo Doctor + native development builds | Validate API behavior, SDK compatibility, and platform bundles |
 | Deployment | Docker-compatible hosting | Portable deployment |
 | Observability | Structured application logs and error tracking | Diagnose failures without logging private content |
 
@@ -446,28 +454,25 @@ A possible structure for the current mobile-client and API implementation:
 braindump/
 ├── AGENTS.md
 ├── README.md
-├── package.json
 ├── .env.example
 ├── mobile/
 │   ├── app.config.ts
 │   └── src/
 │       ├── app/
 │       └── lib/
-├── src/
-│   ├── app/api/v1/
-│   ├── db/
-│   └── features/
-└── drizzle/
-    └── migrations/
+└── backend/
+    ├── app/
+    ├── migrations/
+    └── tests/
 ```
 
-The Expo client and Next.js API are separate applications in one repository. Keep the backend as a TypeScript modular monolith; extract packages or services only when a concrete need appears.
+The Expo client and Python API are separate applications in one repository. Keep the backend as a modular monolith; extract services only when a concrete need appears.
 
 ## 12. First implementation backlog
 
 Recommended order:
 
-1. Create the app and configure TypeScript, linting, formatting, and tests.
+1. Create the app and configure Python and TypeScript linting, formatting, and tests.
 2. Add PostgreSQL, migrations, and the initial schema.
 3. Implement authentication and user-scoped data access.
 4. Build the quick-capture experience.

@@ -6,6 +6,13 @@
 /mobile/.expo/
 /mobile/dist/
 /mobile/dist-android/
+/.next/
+/next-env.d.ts
+/backend/.venv/
+/backend/.pytest_cache/
+/backend/.ruff_cache/
+__pycache__/
+*.py[cod]
 /.pnp
 .pnp.*
 .yarn/*
@@ -16,10 +23,6 @@
 
 # testing
 /coverage
-
-# next.js
-/.next/
-/out/
 
 # production
 /build
@@ -38,9 +41,4 @@ yarn-error.log*
 .env*
 !.env.example
 
-# vercel
-.vercel
-
-# typescript
 *.tsbuildinfo
-next-env.d.ts
