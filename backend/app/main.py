@@ -6,6 +6,7 @@ from app.auth import router as auth_router
 from app.captures import router as captures_router
 from app.errors import API_HEADERS, ApiError, api_error_handler
 from app.export import router as export_router
+from app.items import router as items_router
 
 app = FastAPI(
     title="BrainDump API",
@@ -18,6 +19,7 @@ app.include_router(auth_router)
 app.include_router(agent_router)
 app.include_router(captures_router)
 app.include_router(export_router)
+app.include_router(items_router)
 
 
 @app.middleware("http")

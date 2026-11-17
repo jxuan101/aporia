@@ -119,6 +119,16 @@ async def update_capture(
     ).fetchone()
     if row is None:
         raise ApiError("The capture is unavailable.", 404)
+    connection.execute(
+        """
+        UPDATE agent_suggestions s
+        SET status = 'stale', reviewed_at = now()
+        FROM agent_jobs j
+        WHERE s.job_id = j.id AND s.user_id = %s AND s.capture_id = %s
+            AND s.status = 'pending' AND j.capture_revision <> %s
+        """,
+        (user_id, parsed_id, row["updated_at"]),
+    )
     return {"capture": serialize_capture(row)}
 
 

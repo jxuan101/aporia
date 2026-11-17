@@ -437,3 +437,259 @@ def test_invalid_model_output_fails_job_without_changing_capture(
     assert job["errorCode"] == "invalid_output"
     assert current["originalText"] == "Keep this original content."
     assert current["currentText"] == "Keep this original content."
+
+
+def test_accepting_edited_proposal_creates_one_user_owned_item(
+    client: TestClient,
+    identities: dict[str, str],
+) -> None:
+    owner_headers = {"Authorization": f"Bearer {identities['token_a']}"}
+    other_headers = {"Authorization": f"Bearer {identities['token_b']}"}
+    capture_response = client.post(
+        "/api/v1/captures",
+        headers=owner_headers,
+        json={"text": "Remember to return the library book."},
+    )
+    capture = capture_response.json()["capture"]
+    job_response = client.post(
+        f"/api/v1/captures/{capture['id']}/process",
+        headers=owner_headers,
+    )
+    job_id = job_response.json()["job"]["id"]
+    assert process_next_job(database_connection_factory, FixedProposalAdapter())
+    job = client.get(f"/api/v1/agent/jobs/{job_id}", headers=owner_headers).json()[
+        "job"
+    ]
+    suggestion = job["suggestion"]
+    approved = dict(suggestion["proposal"])
+    approved["title"] = "Return the library book"
+    approved["summary"] = "Return the book to the library this week."
+    suggestion_id = suggestion["id"]
+
+    hidden = client.post(
+        f"/api/v1/agent/suggestions/{suggestion_id}/accept",
+        headers=other_headers,
+        json={"proposal": approved},
+    )
+    assert hidden.status_code == 404
+
+    accepted = client.post(
+        f"/api/v1/agent/suggestions/{suggestion_id}/accept",
+        headers=owner_headers,
+        json={"proposal": approved},
+    )
+    assert accepted.status_code == 200
+    result = accepted.json()["suggestion"]
+    assert result["status"] == "accepted"
+    assert result["acceptedProposal"]["title"] == "Return the library book"
+    assert result["itemId"]
+
+    repeated = client.post(
+        f"/api/v1/agent/suggestions/{suggestion_id}/accept",
+        headers=owner_headers,
+        json={"proposal": approved},
+    )
+    assert repeated.status_code == 200
+    assert repeated.json()["suggestion"]["itemId"] == result["itemId"]
+
+    changed_approved = {**approved, "title": "A different accepted title"}
+    conflict = client.post(
+        f"/api/v1/agent/suggestions/{suggestion_id}/accept",
+        headers=owner_headers,
+        json={"proposal": changed_approved},
+    )
+    assert conflict.status_code == 409
+
+    with psycopg.connect(TEST_DATABASE_URL, row_factory=dict_row) as connection:
+        stored = connection.execute(
+            """
+            SELECT s.status, s.payload_json, s.accepted_payload_json,
+                i.title AS item_title, i.capture_id
+            FROM agent_suggestions s
+            JOIN items i ON i.suggestion_id = s.id
+            WHERE s.id = %s AND s.user_id = %s
+            """,
+            (suggestion_id, identities["user_a"]),
+        ).fetchone()
+    assert stored["status"] == "accepted"
+    assert stored["payload_json"]["title"] == "Remember the library book"
+    assert stored["accepted_payload_json"]["title"] == "Return the library book"
+    assert stored["item_title"] == "Return the library book"
+    assert str(stored["capture_id"]) == capture["id"]
+
+
+def test_rejecting_suggestion_preserves_capture_and_creates_no_item(
+    client: TestClient,
+    identities: dict[str, str],
+) -> None:
+    headers = {"Authorization": f"Bearer {identities['token_a']}"}
+    capture_response = client.post(
+        "/api/v1/captures",
+        headers=headers,
+        json={"text": "A note I may not need later."},
+    )
+    capture = capture_response.json()["capture"]
+    queued = client.post(
+        f"/api/v1/captures/{capture['id']}/process",
+        headers=headers,
+    )
+    job_id = queued.json()["job"]["id"]
+    assert process_next_job(database_connection_factory, FixedProposalAdapter())
+    job = client.get(f"/api/v1/agent/jobs/{job_id}", headers=headers).json()["job"]
+    suggestion_id = job["suggestion"]["id"]
+
+    rejected = client.post(
+        f"/api/v1/agent/suggestions/{suggestion_id}/reject",
+        headers=headers,
+    )
+    assert rejected.status_code == 200
+    assert rejected.json()["suggestion"]["status"] == "rejected"
+    assert (
+        client.post(
+            f"/api/v1/agent/suggestions/{suggestion_id}/reject",
+            headers=headers,
+        ).json()["suggestion"]["status"]
+        == "rejected"
+    )
+
+    with psycopg.connect(TEST_DATABASE_URL, row_factory=dict_row) as connection:
+        count = connection.execute(
+            "SELECT count(*) AS count FROM items WHERE suggestion_id = %s",
+            (suggestion_id,),
+        ).fetchone()["count"]
+    listed = client.get("/api/v1/captures", headers=headers).json()["captures"]
+    current = next(item for item in listed if item["id"] == capture["id"])
+    assert count == 0
+    assert current["originalText"] == "A note I may not need later."
+
+
+def test_accept_rejects_an_edited_proposal_with_fabricated_task_evidence(
+    client: TestClient,
+    identities: dict[str, str],
+) -> None:
+    headers = {"Authorization": f"Bearer {identities['token_a']}"}
+    capture_response = client.post(
+        "/api/v1/captures",
+        headers=headers,
+        json={"text": "A small note about reading."},
+    )
+    capture_id = capture_response.json()["capture"]["id"]
+    queued = client.post(
+        f"/api/v1/captures/{capture_id}/process",
+        headers=headers,
+    )
+    job_id = queued.json()["job"]["id"]
+    assert process_next_job(database_connection_factory, FixedProposalAdapter())
+    suggestion = client.get(f"/api/v1/agent/jobs/{job_id}", headers=headers).json()[
+        "job"
+    ]["suggestion"]
+    edited_proposal = dict(suggestion["proposal"])
+    edited_proposal["candidate_tasks"] = [
+        {
+            "title": "Invented action",
+            "due_date": None,
+            "source_text": "This sentence is not in the capture.",
+            "confidence": 0.9,
+        }
+    ]
+
+    response = client.post(
+        f"/api/v1/agent/suggestions/{suggestion['id']}/accept",
+        headers=headers,
+        json={"proposal": edited_proposal},
+    )
+
+    assert response.status_code == 400
+    refreshed = client.get(f"/api/v1/agent/jobs/{job_id}", headers=headers).json()[
+        "job"
+    ]
+    assert refreshed["suggestion"]["status"] == "pending"
+
+
+def test_capture_edit_marks_pending_suggestion_stale_and_prevents_acceptance(
+    client: TestClient,
+    identities: dict[str, str],
+) -> None:
+    headers = {"Authorization": f"Bearer {identities['token_a']}"}
+    capture_response = client.post(
+        "/api/v1/captures",
+        headers=headers,
+        json={"text": "Capture before processing."},
+    )
+    capture = capture_response.json()["capture"]
+    queued = client.post(
+        f"/api/v1/captures/{capture['id']}/process",
+        headers=headers,
+    )
+    job_id = queued.json()["job"]["id"]
+    assert process_next_job(database_connection_factory, FixedProposalAdapter())
+    job = client.get(f"/api/v1/agent/jobs/{job_id}", headers=headers).json()["job"]
+    suggestion_id = job["suggestion"]["id"]
+    client.patch(
+        f"/api/v1/captures/{capture['id']}",
+        headers=headers,
+        json={"text": "Capture after processing."},
+    )
+
+    stale = client.get(f"/api/v1/agent/jobs/{job_id}", headers=headers).json()["job"]
+    assert stale["suggestion"]["status"] == "stale"
+    attempt = client.post(
+        f"/api/v1/agent/suggestions/{suggestion_id}/accept",
+        headers=headers,
+        json={"proposal": stale["suggestion"]["proposal"]},
+    )
+    assert attempt.status_code == 409
+    with psycopg.connect(TEST_DATABASE_URL, row_factory=dict_row) as connection:
+        assert (
+            connection.execute(
+                "SELECT count(*) AS count FROM items WHERE suggestion_id = %s",
+                (suggestion_id,),
+            ).fetchone()["count"]
+            == 0
+        )
+
+
+def test_items_are_listed_and_read_only_with_user_scoping(
+    client: TestClient,
+    identities: dict[str, str],
+) -> None:
+    owner_headers = {"Authorization": f"Bearer {identities['token_a']}"}
+    other_headers = {"Authorization": f"Bearer {identities['token_b']}"}
+    capture = client.post(
+        "/api/v1/captures",
+        headers=owner_headers,
+        json={"text": "Remember the library book."},
+    ).json()["capture"]
+    job = client.post(
+        f"/api/v1/captures/{capture['id']}/process",
+        headers=owner_headers,
+    ).json()["job"]
+    assert process_next_job(database_connection_factory, FixedProposalAdapter())
+    suggestion = client.get(
+        f"/api/v1/agent/jobs/{job['id']}", headers=owner_headers
+    ).json()["job"]["suggestion"]
+    accepted = client.post(
+        f"/api/v1/agent/suggestions/{suggestion['id']}/accept",
+        headers=owner_headers,
+        json={"proposal": suggestion["proposal"]},
+    )
+    item_id = accepted.json()["suggestion"]["itemId"]
+
+    listed = client.get("/api/v1/items", headers=owner_headers)
+    assert listed.status_code == 200
+    assert listed.json()["nextCursor"] is None
+    assert listed.json()["items"][0]["id"] == item_id
+    assert listed.json()["items"][0]["captureId"] == capture["id"]
+    assert listed.json()["items"][0]["title"] == "Remember the library book"
+
+    detail = client.get(f"/api/v1/items/{item_id}", headers=owner_headers)
+    assert detail.status_code == 200
+    assert detail.json()["item"]["summary"] == "Keep the library book in mind."
+    assert detail.json()["item"]["capture"] == {
+        "originalText": "Remember the library book.",
+        "currentText": "Remember the library book.",
+    }
+    assert (
+        client.get(f"/api/v1/items/{item_id}", headers=other_headers).status_code == 404
+    )
+    assert client.get("/api/v1/items", headers=other_headers).json()["items"] == []

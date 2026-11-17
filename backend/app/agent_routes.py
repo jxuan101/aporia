@@ -3,13 +3,20 @@
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from psycopg import Connection
+from pydantic import ValidationError
 
 from app.agent_jobs import enqueue_capture_job, get_job_for_user
+from app.agent_review import (
+    ReviewConflictError,
+    accept_suggestion,
+    reject_suggestion,
+)
 from app.auth import current_user_id
 from app.database import get_connection
 from app.errors import ApiError
+from app.validation import read_json_body
 
 router = APIRouter(prefix="/api/v1")
 
@@ -29,6 +36,9 @@ def _serialize_job(row: dict[str, Any]) -> dict[str, object]:
             "id": str(suggestion_id),
             "schemaVersion": row["schema_version"],
             "proposal": row["payload_json"],
+            "status": row["suggestion_status"],
+            "acceptedProposal": row["accepted_payload_json"],
+            "itemId": str(row["item_id"]) if row["item_id"] else None,
             "modelIdentifier": row["model_identifier"],
             "promptVersion": row["prompt_version"],
             "createdAt": row["suggestion_created_at"]
@@ -63,7 +73,10 @@ def request_capture_processing(
     )
     if job is None:
         raise ApiError("The requested job or capture is unavailable.", 404)
-    return {"job": _serialize_job(job)}
+    full_job = get_job_for_user(connection, user_id=user_id, job_id=job["id"])
+    if full_job is None:
+        raise ApiError("The requested job or capture is unavailable.", 404)
+    return {"job": _serialize_job(full_job)}
 
 
 @router.get("/agent/jobs/{job_id}")
@@ -83,3 +96,52 @@ def read_processing_job(
     if job is None:
         raise ApiError("The requested job or capture is unavailable.", 404)
     return {"job": _serialize_job(job)}
+
+
+@router.post("/agent/suggestions/{suggestion_id}/accept")
+async def accept_processing_suggestion(
+    suggestion_id: str,
+    request: Request,
+    connection: Annotated[Connection, Depends(get_connection)],
+    user_id: Annotated[str | None, Depends(current_user_id)],
+) -> dict[str, object]:
+    if not user_id:
+        raise ApiError("Authentication required.", 401)
+    body = await read_json_body(request, max_bytes=70_000)
+    if not isinstance(body, dict) or set(body) != {"proposal"}:
+        raise ApiError("A valid edited proposal is required.", 400)
+    try:
+        result = accept_suggestion(
+            connection,
+            user_id=user_id,
+            suggestion_id=_path_uuid(suggestion_id),
+            proposal_data=body["proposal"],
+        )
+    except (ValidationError, ValueError):
+        raise ApiError("The edited proposal did not pass validation.", 400) from None
+    except ReviewConflictError as error:
+        raise ApiError(str(error), 409) from None
+    if result is None:
+        raise ApiError("The requested suggestion is unavailable.", 404)
+    return {"suggestion": result}
+
+
+@router.post("/agent/suggestions/{suggestion_id}/reject")
+def reject_processing_suggestion(
+    suggestion_id: str,
+    connection: Annotated[Connection, Depends(get_connection)],
+    user_id: Annotated[str | None, Depends(current_user_id)],
+) -> dict[str, object]:
+    if not user_id:
+        raise ApiError("Authentication required.", 401)
+    try:
+        result = reject_suggestion(
+            connection,
+            user_id=user_id,
+            suggestion_id=_path_uuid(suggestion_id),
+        )
+    except ReviewConflictError as error:
+        raise ApiError(str(error), 409) from None
+    if result is None:
+        raise ApiError("The requested suggestion is unavailable.", 404)
+    return {"suggestion": result}

@@ -8,7 +8,7 @@ The product is not intended to be another generic chatbot or a complex project-m
 
 ## Getting started
 
-BrainDump is now an iOS and Android app built with Expo and React Native. A private FastAPI backend provides PostgreSQL-backed capture and account APIs; there is no browser-based inbox. The Python backend has a validated proposal schema and an optional Groq adapter, but no processing job or review workflow invokes it yet.
+BrainDump is now an iOS and Android app built with Expo and React Native. A private FastAPI backend provides PostgreSQL-backed capture, account, processing, and suggestion review APIs; there is no browser-based inbox. AI proposals are optional and require an explicit user action before they become items.
 
 Requirements: Python 3.11 or later, Docker Compose, Node.js and npm for the mobile app, and Xcode (iOS) or Android Studio (Android) for local native builds.
 
@@ -32,7 +32,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 3000
 
 If the root `.env.local` already exists, preserve it and set `AUTH_GOOGLE_ID` to the Google **Web application** OAuth client ID. The Android OAuth client ID is a separate credential and cannot be used as the backend audience. The backend verifies native Google ID tokens against the Web client ID. Do not put client secrets in the mobile app; native sign-in does not use a client secret.
 
-To prepare the optional Groq adapter, set `GROQ_API_KEY` and `GROQ_MODEL` in the root `.env.local`. Select a current model ID from [Groq's model list](https://console.groq.com/docs/models). The backend starts without these values; no model request is made automatically. When a processing workflow invokes the adapter, it sends only that capture to Groq. Groq JSON mode ensures valid JSON syntax, and the backend still validates the proposal against its own schema and the original capture.
+To prepare the optional Groq adapter, set `GROQ_API_KEY` and `GROQ_MODEL` in the root `.env.local`. Select a current model ID from [Groq's model list](https://console.groq.com/docs/models). The backend starts without these values; processing requests fail in a structured way until they are configured. Processing sends only the selected capture to Groq. Groq JSON mode ensures valid JSON syntax, and the backend still validates the proposal against its own schema and the original capture.
 
 Set up the mobile app in a second terminal:
 
@@ -52,9 +52,13 @@ Configure Google OAuth clients in the same Google Cloud project:
 
 Google sign-in uses native code, so Expo Go is not supported. Build and run a development app with `npm run ios` or `npm run android` from `mobile/`; these commands require the corresponding local platform toolchain. Start Metro separately with `npm start` in `mobile/` when needed.
 
-The API supports Google sign-in, user-scoped capture creation/edit/deletion, literal search, paginated inbox results, JSON export, and explicit AI-processing requests. Session tokens are random, revocable bearer tokens stored in iOS Keychain or Android Keystore through Expo SecureStore. Google ID tokens are verified by the backend and are not retained; Drive access is not requested. Editing keeps the original capture, and deleting remains permanent.
+The API supports Google sign-in, user-scoped capture creation/edit/deletion, literal capture search, paginated capture and item lists, item details, JSON export, explicit AI processing, and suggestion accept/edit/reject. Session tokens are random, revocable bearer tokens stored in iOS Keychain or Android Keystore through Expo SecureStore. Google ID tokens are verified by the backend and are not retained; Drive access is not requested. Editing keeps the original capture, and deleting remains permanent.
 
-Apply migrations after updating the backend, then run the API and a worker in separate terminals. Set `GROQ_API_KEY` and `GROQ_MODEL` in the root `.env.local` before starting the worker. Processing starts only when an authenticated client explicitly calls `POST /api/v1/captures/{capture_id}/process`; poll `GET /api/v1/agent/jobs/{job_id}` for job state and any pending proposal. Saving a capture never waits for or depends on Groq.
+Apply migrations after updating the backend, then run the API and a worker in separate terminals. Set `GROQ_API_KEY` and `GROQ_MODEL` in the root `.env.local` before starting the worker. Processing starts only when an authenticated client explicitly calls `POST /api/v1/captures/{capture_id}/process`; poll `GET /api/v1/agent/jobs/{job_id}` for job state and any proposal. The mobile app lets the user review the proposal, edit its title and summary, then accept or reject it. Acceptance creates one user-owned item; rejection leaves the original capture intact. Editing a capture makes its pending proposals stale. Saving a capture never waits for or depends on Groq.
+
+Review decisions use `POST /api/v1/agent/suggestions/{suggestion_id}/accept` with `{"proposal": ...}` or `POST /api/v1/agent/suggestions/{suggestion_id}/reject`. Acceptance revalidates the full versioned schema and task evidence against the current capture. Related-item links are not accepted yet; they remain a later roadmap item.
+
+Accepted items are available from `GET /api/v1/items` and `GET /api/v1/items/{item_id}`. Both routes scope results to the authenticated user. The mobile app includes a paginated saved-items list and a read-only detail view with the original capture for context.
 
 ```sh
 cd backend
@@ -237,7 +241,7 @@ Use a versioned schema. Example:
 
 Do not expose private chain-of-thought. Store only concise, user-facing explanations such as `reasoning_summary`.
 
-The Python API defines schema version `1` in `backend/app/agent_schema.py`. It rejects unknown fields, invalid item types, out-of-range confidence values, oversized output, and candidate-task evidence that does not appear verbatim in the original capture. Candidate due dates preserve the capture's wording rather than converting it into a reminder date. Related item IDs are syntax-checked only and must be checked against the authenticated user's records before related content is shown or a relationship is saved. The Groq adapter and prompt version are in `backend/app/model_adapter.py` and `backend/app/agent_prompts.py`; they are not wired to persistence or a processing job.
+The Python API defines schema version `1` in `backend/app/agent_schema.py`. It rejects unknown fields, invalid item types, out-of-range confidence values, oversized output, and candidate-task evidence that does not appear verbatim in the original capture. Candidate due dates preserve the capture's wording rather than converting them into a reminder date. Related item IDs are syntax-checked by the schema but are not persisted or displayed as links yet. The Groq adapter and prompt version are in `backend/app/model_adapter.py` and `backend/app/agent_prompts.py`; the worker invokes this adapter only after a user requests processing.
 
 ## 6. Architecture
 
@@ -406,8 +410,9 @@ A suggested solo-developer sequence. Time estimates are planning ranges, not com
 - [x] Define the versioned AI output schema with runtime validation and bounded fields.
 - [x] Implement a provider-neutral model adapter interface, Groq adapter, and prompt versioning.
 - [x] Add PostgreSQL-backed background processing and retry handling.
-- Implement classification, title, summary, labels, and candidate tasks.
-- Build suggestion review with accept/edit/reject.
+- [x] Implement classification, title, summary, labels, and candidate tasks.
+- [x] Build mobile suggestion review with accept/edit/reject and item persistence.
+- [x] Add a user-scoped saved-items list and read-only item details in mobile.
 - Add structured failure states and basic usage limits.
 
 **Exit criteria:** A saved capture can be processed asynchronously and reviewed without losing the original text.
@@ -490,7 +495,7 @@ Recommended order:
 2. Add PostgreSQL, migrations, and the initial schema.
 3. Implement authentication and user-scoped data access.
 4. Build the quick-capture experience.
-5. Build inbox, item detail, edit, and delete.
+5. Build capture inbox, saved-item list and detail, edit, and delete.
 6. Add export.
 7. Define and test the AI processing schema using fixtures.
 8. Add the model adapter.

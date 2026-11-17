@@ -65,6 +65,28 @@ def enqueue_capture_job(
             """,
             (user_id, capture_id, capture["updated_at"]),
         ).fetchone()
+        if job is not None and job["status"] == "failed":
+            existing_job_id = job["id"]
+            job = connection.execute(
+                """
+                UPDATE agent_jobs
+                SET status = 'queued', attempt_count = 0, available_at = now(),
+                    error_code = NULL, updated_at = now()
+                WHERE id = %s AND user_id = %s AND status = 'failed'
+                RETURNING id, capture_id, status, attempt_count, error_code,
+                    created_at, updated_at
+                """,
+                (existing_job_id, user_id),
+            ).fetchone()
+            if job is None:
+                job = connection.execute(
+                    """
+                    SELECT id, capture_id, status, attempt_count, error_code,
+                        created_at, updated_at
+                    FROM agent_jobs WHERE id = %s AND user_id = %s
+                    """,
+                    (existing_job_id, user_id),
+                ).fetchone()
     return job
 
 
@@ -78,10 +100,12 @@ def get_job_for_user(
         """
         SELECT j.id, j.capture_id, j.status, j.attempt_count, j.error_code,
             j.created_at, j.updated_at, s.id AS suggestion_id,
-            s.schema_version, s.payload_json, s.model_identifier,
-            s.prompt_version, s.created_at AS suggestion_created_at
+            s.status AS suggestion_status, s.schema_version, s.payload_json,
+            s.accepted_payload_json, s.model_identifier, s.prompt_version,
+            s.created_at AS suggestion_created_at, i.id AS item_id
         FROM agent_jobs j
         LEFT JOIN agent_suggestions s ON s.job_id = j.id AND s.user_id = j.user_id
+        LEFT JOIN items i ON i.suggestion_id = s.id AND i.user_id = s.user_id
         WHERE j.id = %s AND j.user_id = %s
         """,
         (job_id, user_id),

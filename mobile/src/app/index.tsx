@@ -13,15 +13,23 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as SecureStore from "expo-secure-store";
+import { router } from "expo-router";
 
 import {
+  acceptProcessingSuggestion,
   ApiError,
+  type AgentJob,
   type Capture,
+  type ProcessingProposal,
+  type SuggestionDecision,
   createCapture,
   deleteCapture,
   exchangeGoogleIdToken,
   exportCaptures,
+  getProcessingJob,
   listCaptures,
+  rejectProcessingSuggestion,
+  requestCaptureProcessing,
   revokeSession,
   updateCapture,
 } from "../lib/api";
@@ -31,20 +39,182 @@ import {
   signInWithGoogle,
 } from "../lib/google-auth";
 import { shareCaptureExport } from "../lib/export";
-
-const SESSION_KEY = "braindump-mobile-session";
+import { SESSION_KEY } from "../lib/session";
 
 type CaptureCardProps = {
   capture: Capture;
   onSave: (id: string, text: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  onRequestProcessing: (captureId: string) => Promise<AgentJob>;
+  onRefreshProcessing: (jobId: string) => Promise<AgentJob>;
+  onAcceptSuggestion: (
+    suggestionId: string,
+    proposal: ProcessingProposal,
+  ) => Promise<SuggestionDecision>;
+  onRejectSuggestion: (suggestionId: string) => Promise<SuggestionDecision>;
 };
 
-function CaptureCard({ capture, onSave, onDelete }: CaptureCardProps) {
+function CaptureCard({
+  capture,
+  onSave,
+  onDelete,
+  onRequestProcessing,
+  onRefreshProcessing,
+  onAcceptSuggestion,
+  onRejectSuggestion,
+}: CaptureCardProps) {
   const [draft, setDraft] = useState(capture.currentText);
   const [showOriginal, setShowOriginal] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [job, setJob] = useState<AgentJob | null>(null);
+  const [pollingPaused, setPollingPaused] = useState(false);
+  const [isEditingProposal, setIsEditingProposal] = useState(false);
+  const [proposalTitle, setProposalTitle] = useState("");
+  const [proposalSummary, setProposalSummary] = useState("");
+
+  const suggestion = job?.suggestion ?? null;
+  const isJobActive = job?.status === "queued" || job?.status === "running";
+
+  useEffect(() => {
+    if (!job?.id || !isJobActive || pollingPaused) {
+      return;
+    }
+
+    let active = true;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      try {
+        const refreshed = await onRefreshProcessing(job.id);
+        if (!active) {
+          return;
+        }
+        setJob(refreshed);
+        if (refreshed.status === "queued" || refreshed.status === "running") {
+          timeout = setTimeout(() => void poll(), 1_500);
+        }
+      } catch (pollError) {
+        if (active) {
+          setPollingPaused(true);
+          setError(
+            pollError instanceof Error
+              ? pollError.message
+              : "Could not refresh processing status.",
+          );
+        }
+      }
+    };
+
+    timeout = setTimeout(() => void poll(), 1_500);
+    return () => {
+      active = false;
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+    };
+  }, [isJobActive, job?.id, onRefreshProcessing, pollingPaused]);
+
+  async function requestProcessing() {
+    setBusy(true);
+    setError(null);
+    setPollingPaused(false);
+    try {
+      setJob(await onRequestProcessing(capture.id));
+    } catch (processingError) {
+      setError(
+        processingError instanceof Error
+          ? processingError.message
+          : "Could not start capture processing.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function refreshProcessing() {
+    if (!job) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setPollingPaused(false);
+    try {
+      setJob(await onRefreshProcessing(job.id));
+    } catch (refreshError) {
+      setError(
+        refreshError instanceof Error
+          ? refreshError.message
+          : "Could not refresh processing status.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function applyDecision(decision: SuggestionDecision) {
+    setJob((current) => {
+      if (!current?.suggestion) {
+        return current;
+      }
+      return {
+        ...current,
+        suggestion: {
+          ...current.suggestion,
+          status: decision.status,
+          acceptedProposal: decision.acceptedProposal,
+          itemId: decision.itemId,
+        },
+      };
+    });
+    setIsEditingProposal(false);
+  }
+
+  async function acceptProposal() {
+    if (!suggestion) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const proposal: ProcessingProposal = {
+        ...suggestion.proposal,
+        title: isEditingProposal
+          ? proposalTitle.trim()
+          : suggestion.proposal.title,
+        summary: isEditingProposal
+          ? proposalSummary.trim()
+          : suggestion.proposal.summary,
+      };
+      applyDecision(await onAcceptSuggestion(suggestion.id, proposal));
+    } catch (reviewError) {
+      setError(
+        reviewError instanceof Error
+          ? reviewError.message
+          : "Could not accept this suggestion.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function rejectProposal() {
+    if (!suggestion) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      applyDecision(await onRejectSuggestion(suggestion.id));
+    } catch (reviewError) {
+      setError(
+        reviewError instanceof Error
+          ? reviewError.message
+          : "Could not reject this suggestion.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function save() {
     setBusy(true);
@@ -144,7 +314,185 @@ function CaptureCard({ capture, onSave, onDelete }: CaptureCardProps) {
         >
           <Text style={styles.deleteText}>Delete</Text>
         </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          disabled={busy || Boolean(isJobActive)}
+          onPress={() => void requestProcessing()}
+          style={[
+            styles.smallButton,
+            styles.secondaryButton,
+            (busy || Boolean(isJobActive)) && styles.disabledButton,
+          ]}
+        >
+          <Text style={styles.secondaryButtonText}>
+            {busy
+              ? "Starting..."
+              : isJobActive
+                ? "Processing..."
+                : job?.status === "failed" || job?.status === "cancelled"
+                  ? "Try processing again"
+                  : job?.suggestion
+                    ? "Refresh proposal"
+                    : "Process with AI"}
+          </Text>
+        </Pressable>
       </View>
+      {job && (
+        <View style={styles.processingPanel}>
+          {isJobActive ? (
+            <Text style={styles.processingStatus}>
+              {job.status === "queued"
+                ? "Queued for processing..."
+                : "Processing this capture..."}
+            </Text>
+          ) : job.status === "failed" ? (
+            <Text style={styles.errorText}>
+              {job.errorCode === "invalid_output"
+                ? "The model proposal could not be validated. You can try again."
+                : "Processing could not finish. You can try again."}
+            </Text>
+          ) : job.status === "cancelled" ? (
+            <Text style={styles.processingStatus}>
+              This capture changed during processing. Start again for the edited text.
+            </Text>
+          ) : null}
+
+          {error && (
+            <Text accessibilityRole="alert" style={styles.errorText}>
+              {error}
+            </Text>
+          )}
+          {error && (
+            <Pressable
+              accessibilityRole="button"
+              disabled={busy}
+              onPress={() => void refreshProcessing()}
+              style={styles.linkButton}
+            >
+              <Text style={styles.linkText}>Retry status update</Text>
+            </Pressable>
+          )}
+
+          {suggestion && (
+            <View style={styles.suggestionPanel}>
+              <Text style={styles.suggestionLabel}>
+                AI suggestion · {suggestion.status === "pending" ? "needs your review" : suggestion.status}
+              </Text>
+              {isEditingProposal ? (
+                <>
+                  <Text style={styles.fieldLabel}>Suggested title</Text>
+                  <TextInput
+                    accessibilityLabel="Edit suggested title"
+                    editable={!busy}
+                    maxLength={160}
+                    onChangeText={setProposalTitle}
+                    style={styles.proposalTitleInput}
+                    value={proposalTitle}
+                  />
+                  <Text style={styles.fieldLabel}>Suggested summary</Text>
+                  <TextInput
+                    accessibilityLabel="Edit suggested summary"
+                    editable={!busy}
+                    maxLength={1_000}
+                    multiline
+                    onChangeText={setProposalSummary}
+                    style={styles.proposalSummaryInput}
+                    value={proposalSummary}
+                  />
+                </>
+              ) : (
+                <>
+                  <Text style={styles.suggestionTitle}>
+                    {suggestion.acceptedProposal?.title ?? suggestion.proposal.title}
+                  </Text>
+                  <Text style={styles.suggestionSummary}>
+                    {suggestion.acceptedProposal?.summary ?? suggestion.proposal.summary}
+                  </Text>
+                </>
+              )}
+              <Text style={styles.suggestionType}>
+                {suggestion.proposal.item_type}
+              </Text>
+              {suggestion.proposal.labels.length > 0 && (
+                <Text style={styles.suggestionDetail}>
+                  Labels: {suggestion.proposal.labels.join(", ")}
+                </Text>
+              )}
+              {suggestion.proposal.candidate_tasks.map((task, index) => (
+                <View key={`${suggestion.id}:task:${index}`} style={styles.taskSuggestion}>
+                  <Text style={styles.taskSuggestionTitle}>Next step: {task.title}</Text>
+                  {task.due_date && (
+                    <Text style={styles.suggestionDetail}>
+                      Date wording: {task.due_date}
+                    </Text>
+                  )}
+                  <Text style={styles.taskSourceText}>From your capture: {task.source_text}</Text>
+                </View>
+              ))}
+              {suggestion.proposal.clarifying_question && (
+                <Text style={styles.suggestionDetail}>
+                  Question: {suggestion.proposal.clarifying_question}
+                </Text>
+              )}
+              <Text style={styles.suggestionExplanation}>
+                {suggestion.proposal.reasoning_summary}
+              </Text>
+              {suggestion.status === "pending" ? (
+                <View style={styles.reviewActions}>
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={busy}
+                    onPress={() => void acceptProposal()}
+                    style={[styles.smallButton, styles.acceptButton, busy && styles.disabledButton]}
+                  >
+                    <Text style={styles.acceptButtonText}>
+                      {busy ? "Saving..." : isEditingProposal ? "Accept edits" : "Accept suggestion"}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={busy}
+                    onPress={() => {
+                      if (isEditingProposal) {
+                        setIsEditingProposal(false);
+                      } else {
+                        setProposalTitle(suggestion.proposal.title);
+                        setProposalSummary(suggestion.proposal.summary);
+                        setIsEditingProposal(true);
+                      }
+                    }}
+                    style={styles.linkButton}
+                  >
+                    <Text style={styles.linkText}>
+                      {isEditingProposal ? "Cancel edit" : "Edit title or summary"}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={busy}
+                    onPress={() => void rejectProposal()}
+                    style={styles.linkButton}
+                  >
+                    <Text style={styles.deleteText}>Reject</Text>
+                  </Pressable>
+                </View>
+              ) : suggestion.status === "accepted" ? (
+                <Text style={styles.processingStatus}>
+                  Accepted and saved to your items.
+                </Text>
+              ) : suggestion.status === "rejected" ? (
+                <Text style={styles.processingStatus}>
+                  Rejected. Your original capture is unchanged.
+                </Text>
+              ) : (
+                <Text style={styles.processingStatus}>
+                  This proposal is out of date. Process the edited capture to get a new one.
+                </Text>
+              )}
+            </View>
+          )}
+        </View>
+      )}
       {showOriginal && (
         <View style={styles.originalPanel}>
           <Text style={styles.originalLabel}>Original capture</Text>
@@ -357,6 +705,46 @@ export default function InboxScreen() {
     }
   }
 
+  const handleRequestProcessing = useCallback(
+    async (captureId: string) => {
+      if (!sessionToken) {
+        throw new ApiError("Authentication required.", 401);
+      }
+      return requestCaptureProcessing(sessionToken, captureId);
+    },
+    [sessionToken],
+  );
+
+  const handleRefreshProcessing = useCallback(
+    async (jobId: string) => {
+      if (!sessionToken) {
+        throw new ApiError("Authentication required.", 401);
+      }
+      return getProcessingJob(sessionToken, jobId);
+    },
+    [sessionToken],
+  );
+
+  const handleAcceptSuggestion = useCallback(
+    async (suggestionId: string, proposal: ProcessingProposal) => {
+      if (!sessionToken) {
+        throw new ApiError("Authentication required.", 401);
+      }
+      return acceptProcessingSuggestion(sessionToken, suggestionId, proposal);
+    },
+    [sessionToken],
+  );
+
+  const handleRejectSuggestion = useCallback(
+    async (suggestionId: string) => {
+      if (!sessionToken) {
+        throw new ApiError("Authentication required.", 401);
+      }
+      return rejectProcessingSuggestion(sessionToken, suggestionId);
+    },
+    [sessionToken],
+  );
+
   async function handleDeleteCapture(id: string) {
     if (!sessionToken) {
       return;
@@ -481,6 +869,14 @@ export default function InboxScreen() {
             <Text style={styles.brandName}>BrainDump</Text>
           </View>
           <View style={styles.headerActions}>
+            <Pressable
+              accessibilityRole="button"
+              disabled={busy}
+              onPress={() => router.push("./items")}
+              style={styles.linkButton}
+            >
+              <Text style={styles.linkText}>Items</Text>
+            </Pressable>
             <Pressable
               accessibilityRole="button"
               disabled={busy}
@@ -630,6 +1026,10 @@ export default function InboxScreen() {
                 key={`${capture.id}:${capture.updatedAt}`}
                 onDelete={handleDeleteCapture}
                 onSave={handleSaveCapture}
+                onRequestProcessing={handleRequestProcessing}
+                onRefreshProcessing={handleRefreshProcessing}
+                onAcceptSuggestion={handleAcceptSuggestion}
+                onRejectSuggestion={handleRejectSuggestion}
               />
             ))
           )}
@@ -924,6 +1324,127 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginTop: 10,
     padding: 12,
+  },
+  processingPanel: {
+    borderTopColor: "#E5E3DA",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    marginTop: 12,
+    paddingTop: 11,
+  },
+  processingStatus: {
+    color: "#53685A",
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 8,
+  },
+  suggestionPanel: {
+    backgroundColor: "#F1F4EF",
+    borderColor: "#D9E1D8",
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 10,
+    padding: 13,
+  },
+  suggestionLabel: {
+    color: "#53685A",
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.7,
+    textTransform: "uppercase",
+  },
+  suggestionTitle: {
+    color: "#24342A",
+    fontSize: 17,
+    fontWeight: "700",
+    lineHeight: 23,
+    marginTop: 9,
+  },
+  suggestionSummary: {
+    color: "#435147",
+    fontSize: 14,
+    lineHeight: 21,
+    marginTop: 5,
+  },
+  suggestionType: {
+    alignSelf: "flex-start",
+    color: "#596C5E",
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 9,
+    textTransform: "capitalize",
+  },
+  suggestionDetail: {
+    color: "#536056",
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 7,
+  },
+  taskSuggestion: {
+    borderLeftColor: "#9BAE9C",
+    borderLeftWidth: 2,
+    marginTop: 9,
+    paddingLeft: 9,
+  },
+  taskSuggestionTitle: {
+    color: "#344238",
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 19,
+  },
+  taskSourceText: {
+    color: "#717A72",
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 4,
+  },
+  suggestionExplanation: {
+    color: "#68746B",
+    fontSize: 12,
+    fontStyle: "italic",
+    lineHeight: 18,
+    marginTop: 10,
+  },
+  proposalTitleInput: {
+    backgroundColor: "#FFFFFF",
+    borderColor: "#D9E1D8",
+    borderRadius: 8,
+    borderWidth: 1,
+    color: "#24342A",
+    fontSize: 16,
+    minHeight: 42,
+    paddingHorizontal: 10,
+  },
+  proposalSummaryInput: {
+    backgroundColor: "#FFFFFF",
+    borderColor: "#D9E1D8",
+    borderRadius: 8,
+    borderWidth: 1,
+    color: "#24342A",
+    fontSize: 14,
+    lineHeight: 20,
+    minHeight: 76,
+    padding: 10,
+    textAlignVertical: "top",
+  },
+  reviewActions: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 10,
+  },
+  acceptButton: {
+    alignItems: "center",
+    backgroundColor: "#2F4636",
+    borderRadius: 10,
+    justifyContent: "center",
+    minHeight: 40,
+    paddingHorizontal: 13,
+  },
+  acceptButtonText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "700",
   },
   originalLabel: {
     color: "#617065",

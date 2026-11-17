@@ -1,5 +1,6 @@
 """Versioned, untrusted model output contracts for capture processing."""
 
+import json
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -70,10 +71,26 @@ def validate_proposal_json(
     return proposal
 
 
+def validate_proposal_data(
+    value: object,
+    *,
+    original_capture: str,
+) -> ProcessingProposal:
+    """Validate a JSON-decoded request body with the same strict contract."""
+    if not isinstance(value, dict):
+        raise ValueError("The proposal must be a JSON object.")
+    try:
+        raw_json = json.dumps(value, ensure_ascii=False)
+    except (TypeError, ValueError):
+        raise ValueError("The proposal must contain only JSON values.") from None
+    return validate_proposal_json(raw_json, original_capture=original_capture)
+
+
 __all__ = [
     "PROPOSAL_SCHEMA_VERSION",
     "CandidateTask",
     "ProcessingProposal",
     "ValidationError",
+    "validate_proposal_data",
     "validate_proposal_json",
 ]
