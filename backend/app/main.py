@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from app.agent_routes import router as agent_router
 from app.auth import router as auth_router
 from app.captures import router as captures_router
 from app.errors import API_HEADERS, ApiError, api_error_handler
@@ -14,6 +15,7 @@ app = FastAPI(
 )
 app.add_exception_handler(ApiError, api_error_handler)
 app.include_router(auth_router)
+app.include_router(agent_router)
 app.include_router(captures_router)
 app.include_router(export_router)
 

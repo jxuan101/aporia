@@ -8,7 +8,7 @@ The product is not intended to be another generic chatbot or a complex project-m
 
 ## Getting started
 
-BrainDump is now an iOS and Android app built with Expo and React Native. A private FastAPI backend provides PostgreSQL-backed capture and account APIs; there is no browser-based inbox. AI processing is not implemented.
+BrainDump is now an iOS and Android app built with Expo and React Native. A private FastAPI backend provides PostgreSQL-backed capture and account APIs; there is no browser-based inbox. The Python backend has a validated proposal schema and an optional Groq adapter, but no processing job or review workflow invokes it yet.
 
 Requirements: Python 3.11 or later, Docker Compose, Node.js and npm for the mobile app, and Xcode (iOS) or Android Studio (Android) for local native builds.
 
@@ -32,6 +32,8 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 3000
 
 If the root `.env.local` already exists, preserve it and set `AUTH_GOOGLE_ID` to the Google **Web application** OAuth client ID. The Android OAuth client ID is a separate credential and cannot be used as the backend audience. The backend verifies native Google ID tokens against the Web client ID. Do not put client secrets in the mobile app; native sign-in does not use a client secret.
 
+To prepare the optional Groq adapter, set `GROQ_API_KEY` and `GROQ_MODEL` in the root `.env.local`. Select a current model ID from [Groq's model list](https://console.groq.com/docs/models). The backend starts without these values; no model request is made automatically. When a processing workflow invokes the adapter, it sends only that capture to Groq. Groq JSON mode ensures valid JSON syntax, and the backend still validates the proposal against its own schema and the original capture.
+
 Set up the mobile app in a second terminal:
 
 ```sh
@@ -50,7 +52,17 @@ Configure Google OAuth clients in the same Google Cloud project:
 
 Google sign-in uses native code, so Expo Go is not supported. Build and run a development app with `npm run ios` or `npm run android` from `mobile/`; these commands require the corresponding local platform toolchain. Start Metro separately with `npm start` in `mobile/` when needed.
 
-The API supports Google sign-in, user-scoped capture creation/edit/deletion, literal search, paginated inbox results, and JSON export. Session tokens are random, revocable bearer tokens stored in iOS Keychain or Android Keystore through Expo SecureStore. Google ID tokens are verified by the backend and are not retained; Drive access is not requested. Editing keeps the original capture, and deleting remains permanent.
+The API supports Google sign-in, user-scoped capture creation/edit/deletion, literal search, paginated inbox results, JSON export, and explicit AI-processing requests. Session tokens are random, revocable bearer tokens stored in iOS Keychain or Android Keystore through Expo SecureStore. Google ID tokens are verified by the backend and are not retained; Drive access is not requested. Editing keeps the original capture, and deleting remains permanent.
+
+Apply migrations after updating the backend, then run the API and a worker in separate terminals. Set `GROQ_API_KEY` and `GROQ_MODEL` in the root `.env.local` before starting the worker. Processing starts only when an authenticated client explicitly calls `POST /api/v1/captures/{capture_id}/process`; poll `GET /api/v1/agent/jobs/{job_id}` for job state and any pending proposal. Saving a capture never waits for or depends on Groq.
+
+```sh
+cd backend
+python -m app.migrate
+python -m app.worker
+```
+
+The job table deduplicates requests for the same capture revision, claims work with PostgreSQL row locks, allows up to three attempts with backoff after transient provider failures, and stores at most one proposal per job. If the capture changes while a job is queued or running, the stale result is cancelled. Raw captures, prompts, provider responses, and API keys are not logged.
 
 Google identities are not automatically linked by email. Existing data remains attached to its original Google or GitHub identity unless the same Google account is already linked or an explicit migration is performed.
 
@@ -225,6 +237,8 @@ Use a versioned schema. Example:
 
 Do not expose private chain-of-thought. Store only concise, user-facing explanations such as `reasoning_summary`.
 
+The Python API defines schema version `1` in `backend/app/agent_schema.py`. It rejects unknown fields, invalid item types, out-of-range confidence values, oversized output, and candidate-task evidence that does not appear verbatim in the original capture. Candidate due dates preserve the capture's wording rather than converting it into a reminder date. Related item IDs are syntax-checked only and must be checked against the authenticated user's records before related content is shown or a relationship is saved. The Groq adapter and prompt version are in `backend/app/model_adapter.py` and `backend/app/agent_prompts.py`; they are not wired to persistence or a processing job.
+
 ## 6. Architecture
 
 ### Recommended initial architecture
@@ -370,28 +384,28 @@ A suggested solo-developer sequence. Time estimates are planning ranges, not com
 
 ### Phase 0 — Product foundation (2–3 days)
 
-- Confirm target user and primary capture workflow.
-- Create repository, project scripts, formatting, linting, and CI.
-- Define initial database schema and item types.
-- Create wireframes for capture, inbox, and suggestion review.
+- [x] Confirm target user and primary capture workflow.
+- [x] Create repository, project scripts, formatting, linting, and CI.
+- [x] Define initial database schema and item types.
+- [x] Create wireframes for capture, inbox, and suggestion review.
 
 **Exit criteria:** A running skeleton app, documented decisions, and a small set of testable user stories.
 
 ### Phase 1 — Capture and personal inbox (1 week)
 
-- Implement authentication or a safe single-user development mode.
-- Implement capture creation, editing, and deletion.
-- Build inbox and item detail views.
-- Add database migrations and ownership checks.
-- Add JSON export.
+- [x] Implement authentication or a safe single-user development mode.
+- [x] Implement capture creation, editing, and deletion.
+- [x] Build inbox and item detail views.
+- [x] Add database migrations and ownership checks.
+- [x] Add JSON export.
 
 **Exit criteria:** A user can reliably capture, browse, edit, search, export, and delete their own thoughts without AI.
 
 ### Phase 2 — Agent processing (1–2 weeks)
 
-- Define the versioned AI output schema.
-- Implement model adapter and prompt versioning.
-- Add background processing and retry handling.
+- [x] Define the versioned AI output schema with runtime validation and bounded fields.
+- [x] Implement a provider-neutral model adapter interface, Groq adapter, and prompt versioning.
+- [x] Add PostgreSQL-backed background processing and retry handling.
 - Implement classification, title, summary, labels, and candidate tasks.
 - Build suggestion review with accept/edit/reject.
 - Add structured failure states and basic usage limits.
