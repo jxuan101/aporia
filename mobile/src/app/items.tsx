@@ -117,7 +117,7 @@ export default function ItemsScreen() {
         keyExtractor={(item) => item.id}
         ListEmptyComponent={
           items.length === 0 ? (loading ? (
-            <ActivityIndicator color="#2F4636" />
+            <ActivityIndicator accessibilityLabel="Loading saved items" color="#2F4636" />
           ) : (
             <View style={styles.emptyCard}>
               <Text style={styles.emptyTitle}>No saved items yet</Text>
@@ -130,7 +130,7 @@ export default function ItemsScreen() {
         ListHeaderComponent={
           <View style={styles.titleBlock}>
             <Text style={styles.eyebrow}>YOUR KNOWLEDGE</Text>
-            <Text style={styles.title}>Saved items</Text>
+            <Text accessibilityRole="header" style={styles.title}>Saved items</Text>
             <Text style={styles.bodyText}>
               Ideas and notes you chose to keep from processed captures.
             </Text>
@@ -139,7 +139,7 @@ export default function ItemsScreen() {
                 <Text accessibilityRole="alert" style={styles.errorText}>
                   {error}
                 </Text>
-                <Pressable accessibilityRole="button" onPress={() => void refresh()}>
+                <Pressable accessibilityRole="button" accessibilityLabel="Retry loading saved items" onPress={() => void refresh()} style={styles.retryButton}>
                   <Text style={styles.actionText}>Try again</Text>
                 </Pressable>
               </View>
@@ -197,7 +197,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 12,
   },
-  backButton: { minHeight: 36, justifyContent: "center", paddingRight: 12 },
+  backButton: { minHeight: 44, justifyContent: "center", paddingRight: 12 },
   backText: { color: "#53685A", fontSize: 15, fontWeight: "700" },
   brand: { color: "#24342A", fontFamily: "Georgia", fontSize: 19, fontWeight: "700" },
   content: { padding: 20, paddingBottom: 40, flexGrow: 1 },
@@ -220,6 +220,7 @@ const styles = StyleSheet.create({
   labels: { color: "#53685A", fontSize: 12, marginTop: 10 },
   pressed: { opacity: 0.78 },
   moreButton: { alignItems: "center", minHeight: 44, justifyContent: "center" },
+  retryButton: { alignSelf: "flex-start", justifyContent: "center", minHeight: 44, paddingRight: 12 },
   actionText: { color: "#53685A", fontSize: 14, fontWeight: "700", marginTop: 8 },
   errorText: { color: "#A33D32", fontSize: 14, lineHeight: 20, marginTop: 12 },
 });

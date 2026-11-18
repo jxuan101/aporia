@@ -21,6 +21,7 @@ import {
   type AgentJob,
   type BrainDumpItem,
   type Capture,
+  type CaptureCreation,
   type ProcessingProposal,
   type SuggestionDecision,
   createCapture,
@@ -55,6 +56,23 @@ type CaptureCardProps = {
   ) => Promise<SuggestionDecision>;
   onRejectSuggestion: (suggestionId: string) => Promise<SuggestionDecision>;
 };
+
+function processingFailureMessage(job: AgentJob): string {
+  switch (job.errorCode) {
+    case "invalid_output":
+      return "The AI response could not be checked against your capture. Your original is safe; try processing again.";
+    case "provider_unavailable":
+      return `The AI service did not respond after ${job.attemptCount} of ${job.maxAttempts} attempts. Try again later.`;
+    case "provider_rejected":
+      return "The AI service rejected this request. Your capture is safe; try again later.";
+    case "processing_error":
+      return "Processing stopped unexpectedly. Your capture is safe; try again later.";
+    case "lease_expired":
+      return "The worker stopped responding before finishing. Your capture is safe; you can retry.";
+    default:
+      return "Processing could not finish. Your capture is safe; you can try again.";
+  }
+}
 
 function CaptureCard({
   capture,
@@ -344,15 +362,13 @@ function CaptureCard({
           {isJobActive ? (
             <Text style={styles.processingStatus}>
               {job.status === "queued"
-                ? "Queued for processing..."
+                ? job.errorCode === "provider_unavailable"
+                  ? `The AI service is temporarily unavailable. Retrying (${Math.min(job.attemptCount + 1, job.maxAttempts)} of ${job.maxAttempts})...`
+                  : "Queued for processing..."
                 : "Processing this capture..."}
             </Text>
           ) : job.status === "failed" ? (
-            <Text style={styles.errorText}>
-              {job.errorCode === "invalid_output"
-                ? "The model proposal could not be validated. You can try again."
-                : "Processing could not finish. You can try again."}
-            </Text>
+            <Text style={styles.errorText}>{processingFailureMessage(job)}</Text>
           ) : job.status === "cancelled" ? (
             <Text style={styles.processingStatus}>
               This capture changed during processing. Start again for the edited text.
@@ -510,6 +526,9 @@ export default function InboxScreen() {
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [captures, setCaptures] = useState<Capture[]>([]);
+  const [possibleDuplicates, setPossibleDuplicates] = useState<
+    CaptureCreation["possibleDuplicates"]
+  >([]);
   const [searchItems, setSearchItems] = useState<BrainDumpItem[]>([]);
   const [searchItemsCursor, setSearchItemsCursor] = useState<string | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -522,6 +541,7 @@ export default function InboxScreen() {
     if (requestError instanceof ApiError && requestError.status === 401) {
       setSessionToken(null);
       setCaptures([]);
+      setPossibleDuplicates([]);
       setSearchItems([]);
       setSearchItemsCursor(null);
       setError("Your session expired. Sign in again to continue.");
@@ -628,6 +648,7 @@ export default function InboxScreen() {
       await SecureStore.deleteItemAsync(SESSION_KEY);
       setSessionToken(null);
       setCaptures([]);
+      setPossibleDuplicates([]);
       setSearchItems([]);
       setSearchItemsCursor(null);
       setNextCursor(null);
@@ -650,8 +671,10 @@ export default function InboxScreen() {
     }
     setBusy(true);
     setError(null);
+    setPossibleDuplicates([]);
     try {
-      await createCapture(sessionToken, captureText);
+      const result = await createCapture(sessionToken, captureText);
+      setPossibleDuplicates(result.possibleDuplicates);
       setCaptureText("");
       Keyboard.dismiss();
       await loadInbox(sessionToken, activeSearch);
@@ -939,10 +962,17 @@ export default function InboxScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <Text style={styles.eyebrow}>YOUR PRIVATE INBOX</Text>
-          <Text style={styles.title}>Get it out of your head.</Text>
+          <Text accessibilityRole="header" style={styles.title}>Get it out of your head.</Text>
           <Text style={styles.intro}>
             Capture first. Decide what to do with it later.
           </Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => router.push("./review")}
+            style={styles.reviewNavButton}
+          >
+            <Text style={styles.reviewNavText}>Open daily review</Text>
+          </Pressable>
 
           <View style={styles.composer}>
             <Text style={styles.fieldLabel}>What is on your mind?</Text>
@@ -961,6 +991,32 @@ export default function InboxScreen() {
             <Text style={styles.helperText}>
               Your original wording is kept when you edit a capture.
             </Text>
+            {possibleDuplicates.length > 0 && (
+              <View style={styles.duplicateWarning}>
+                <Text style={styles.duplicateWarningTitle}>
+                  Similar thought already saved
+                </Text>
+                <Text style={styles.duplicateWarningText}>
+                  Your new capture is saved. It looks similar to:
+                </Text>
+                {possibleDuplicates.map((duplicate) => (
+                  <Text
+                    key={duplicate.id}
+                    numberOfLines={3}
+                    style={styles.duplicateMatchText}
+                  >
+                    {duplicate.currentText}
+                  </Text>
+                ))}
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setPossibleDuplicates([])}
+                  style={styles.linkButton}
+                >
+                  <Text style={styles.linkText}>Dismiss warning</Text>
+                </Pressable>
+              </View>
+            )}
             <Pressable
               accessibilityRole="button"
               disabled={busy || captureText.trim().length === 0}
@@ -1207,6 +1263,16 @@ const styles = StyleSheet.create({
     marginTop: 12,
     maxWidth: 420,
   },
+  reviewNavButton: {
+    alignSelf: "flex-start",
+    backgroundColor: "#E8ECE6",
+    borderRadius: 11,
+    justifyContent: "center",
+    marginTop: 14,
+            minHeight: 44,
+    paddingHorizontal: 14,
+  },
+  reviewNavText: { color: "#2F4636", fontSize: 13, fontWeight: "700" },
   primaryButton: {
     alignItems: "center",
     backgroundColor: "#243B2D",
@@ -1301,6 +1367,31 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginTop: 4,
   },
+  duplicateWarning: {
+    backgroundColor: "#FBF3E4",
+    borderColor: "#E7D6B5",
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 13,
+    padding: 12,
+  },
+  duplicateWarningTitle: {
+    color: "#674A1F",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  duplicateWarningText: {
+    color: "#675C49",
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 5,
+  },
+  duplicateMatchText: {
+    color: "#4F4A41",
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 7,
+  },
   searchSection: {
     marginTop: 25,
   },
@@ -1325,7 +1416,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#E8ECE6",
     borderRadius: 11,
     justifyContent: "center",
-    minHeight: 42,
+    minHeight: 44,
     paddingHorizontal: 16,
   },
   secondaryButtonText: {
@@ -1346,8 +1437,8 @@ const styles = StyleSheet.create({
   linkButton: {
     alignItems: "center",
     justifyContent: "center",
-    minHeight: 36,
-    paddingHorizontal: 6,
+    minHeight: 44,
+    paddingHorizontal: 8,
   },
   linkText: {
     color: "#53685A",

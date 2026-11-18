@@ -7,7 +7,12 @@ from fastapi import APIRouter, Depends, Request
 from psycopg import Connection
 from pydantic import ValidationError
 
-from app.agent_jobs import enqueue_capture_job, get_job_for_user
+from app.agent_jobs import (
+    MAX_DAILY_PROCESSING_REQUESTS_PER_USER,
+    ProcessingUsageLimitError,
+    enqueue_capture_job,
+    get_job_for_user,
+)
 from app.agent_review import (
     ReviewConflictError,
     accept_suggestion,
@@ -50,6 +55,7 @@ def _serialize_job(row: dict[str, Any]) -> dict[str, object]:
         "captureId": str(row["capture_id"]),
         "status": row["status"],
         "attemptCount": row["attempt_count"],
+        "maxAttempts": row["max_attempts"],
         "errorCode": row["error_code"],
         "createdAt": row["created_at"].isoformat().replace("+00:00", "Z"),
         "updatedAt": row["updated_at"].isoformat().replace("+00:00", "Z"),
@@ -66,11 +72,20 @@ def request_capture_processing(
     if not user_id:
         raise ApiError("Authentication required.", 401)
 
-    job = enqueue_capture_job(
-        connection,
-        user_id=user_id,
-        capture_id=_path_uuid(capture_id),
-    )
+    try:
+        job = enqueue_capture_job(
+            connection,
+            user_id=user_id,
+            capture_id=_path_uuid(capture_id),
+        )
+    except ProcessingUsageLimitError:
+        raise ApiError(
+            "Daily AI processing limit reached "
+            f"({MAX_DAILY_PROCESSING_REQUESTS_PER_USER} per UTC day). "
+            "Try again after 00:00 UTC.",
+            429,
+            code="daily_processing_limit",
+        ) from None
     if job is None:
         raise ApiError("The requested job or capture is unavailable.", 404)
     full_job = get_job_for_user(connection, user_id=user_id, job_id=job["id"])

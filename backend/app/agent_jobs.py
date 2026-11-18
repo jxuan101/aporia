@@ -18,8 +18,13 @@ from app.model_adapter import (
 )
 
 MAX_ATTEMPTS = 3
+MAX_DAILY_PROCESSING_REQUESTS_PER_USER = 20
 LEASE_SECONDS = 120
 POLL_INTERVAL_SECONDS = 1
+
+
+class ProcessingUsageLimitError(Exception):
+    """The authenticated user has reached the daily processing request limit."""
 
 
 @dataclass(frozen=True)
@@ -32,12 +37,39 @@ class ClaimedJob:
     attempt_count: int
 
 
+def _consume_daily_processing_request(
+    connection: psycopg.Connection,
+    *,
+    user_id: str,
+) -> None:
+    consumed = connection.execute(
+        """
+        INSERT INTO agent_usage_daily (user_id, usage_date, processing_requests)
+        VALUES (%s, (now() AT TIME ZONE 'UTC')::date, 1)
+        ON CONFLICT (user_id, usage_date) DO UPDATE
+        SET processing_requests = agent_usage_daily.processing_requests + 1
+        WHERE agent_usage_daily.processing_requests < %s
+        RETURNING processing_requests
+        """,
+        (user_id, MAX_DAILY_PROCESSING_REQUESTS_PER_USER),
+    ).fetchone()
+    if consumed is None:
+        raise ProcessingUsageLimitError
+
+
 def enqueue_capture_job(
     connection: psycopg.Connection,
     *,
     user_id: str,
     capture_id: UUID,
 ) -> dict[str, Any] | None:
+    user = connection.execute(
+        "SELECT id FROM users WHERE id = %s FOR UPDATE",
+        (user_id,),
+    ).fetchone()
+    if user is None:
+        return None
+
     capture = connection.execute(
         "SELECT id, updated_at FROM captures WHERE id = %s AND user_id = %s",
         (capture_id, user_id),
@@ -47,46 +79,47 @@ def enqueue_capture_job(
 
     job = connection.execute(
         """
-        INSERT INTO agent_jobs (user_id, capture_id, capture_revision)
-        VALUES (%s, %s, %s)
-        ON CONFLICT (capture_id, capture_revision) DO NOTHING
-        RETURNING id, capture_id, status, attempt_count, error_code, created_at,
+        SELECT id, capture_id, status, attempt_count, error_code, created_at,
             updated_at
+        FROM agent_jobs
+        WHERE user_id = %s AND capture_id = %s AND capture_revision = %s
         """,
         (user_id, capture_id, capture["updated_at"]),
     ).fetchone()
     if job is None:
+        _consume_daily_processing_request(connection, user_id=user_id)
         job = connection.execute(
             """
-            SELECT id, capture_id, status, attempt_count, error_code, created_at,
+            INSERT INTO agent_jobs (user_id, capture_id, capture_revision)
+            VALUES (%s, %s, %s)
+            RETURNING id, capture_id, status, attempt_count, error_code, created_at,
                 updated_at
-            FROM agent_jobs
-            WHERE user_id = %s AND capture_id = %s AND capture_revision = %s
             """,
             (user_id, capture_id, capture["updated_at"]),
         ).fetchone()
-        if job is not None and job["status"] == "failed":
-            existing_job_id = job["id"]
+    elif job["status"] == "failed":
+        _consume_daily_processing_request(connection, user_id=user_id)
+        existing_job_id = job["id"]
+        job = connection.execute(
+            """
+            UPDATE agent_jobs
+            SET status = 'queued', attempt_count = 0, available_at = now(),
+                error_code = NULL, updated_at = now()
+            WHERE id = %s AND user_id = %s AND status = 'failed'
+            RETURNING id, capture_id, status, attempt_count, error_code, created_at,
+                updated_at
+            """,
+            (existing_job_id, user_id),
+        ).fetchone()
+        if job is None:
             job = connection.execute(
                 """
-                UPDATE agent_jobs
-                SET status = 'queued', attempt_count = 0, available_at = now(),
-                    error_code = NULL, updated_at = now()
-                WHERE id = %s AND user_id = %s AND status = 'failed'
-                RETURNING id, capture_id, status, attempt_count, error_code,
-                    created_at, updated_at
+                SELECT id, capture_id, status, attempt_count, error_code, created_at,
+                    updated_at
+                FROM agent_jobs WHERE id = %s AND user_id = %s
                 """,
                 (existing_job_id, user_id),
             ).fetchone()
-            if job is None:
-                job = connection.execute(
-                    """
-                    SELECT id, capture_id, status, attempt_count, error_code,
-                        created_at, updated_at
-                    FROM agent_jobs WHERE id = %s AND user_id = %s
-                    """,
-                    (existing_job_id, user_id),
-                ).fetchone()
     return job
 
 
@@ -98,7 +131,8 @@ def get_job_for_user(
 ) -> dict[str, Any] | None:
     return connection.execute(
         """
-        SELECT j.id, j.capture_id, j.status, j.attempt_count, j.error_code,
+        SELECT j.id, j.capture_id, j.status, j.attempt_count, j.max_attempts,
+            j.error_code,
             j.created_at, j.updated_at, s.id AS suggestion_id,
             s.status AS suggestion_status, s.schema_version, s.payload_json,
             s.accepted_payload_json, s.model_identifier, s.prompt_version,

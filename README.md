@@ -54,13 +54,21 @@ Google sign-in uses native code, so Expo Go is not supported. Build and run a de
 
 The API supports Google sign-in, user-scoped capture creation/edit/deletion, PostgreSQL full-text search across captures and saved-item metadata, paginated capture and item lists, item details, JSON export, explicit AI processing, and suggestion accept/edit/reject. Session tokens are random, revocable bearer tokens stored in iOS Keychain or Android Keystore through Expo SecureStore. Google ID tokens are verified by the backend and are not retained; Drive access is not requested. Editing keeps the original capture, and deleting remains permanent.
 
+Capture creation returns possible duplicate captures after the new capture is saved. The warning compares against up to 500 recent captures owned by the same user, requires at least five meaningful words for approximate matches, and reports up to three matches with 80% term overlap. Exact normalized matches can be warned on even when short. The warning never blocks, merges, or deletes a capture.
+
 Apply migrations after updating the backend, then run the API and a worker in separate terminals. Set `GROQ_API_KEY` and `GROQ_MODEL` in the root `.env.local` before starting the worker. Processing starts only when an authenticated client explicitly calls `POST /api/v1/captures/{capture_id}/process`; poll `GET /api/v1/agent/jobs/{job_id}` for job state and any proposal. The mobile app lets the user review the proposal, edit its title and summary, then accept or reject it. Acceptance creates one user-owned item; rejection leaves the original capture intact. Editing a capture makes its pending proposals stale. Saving a capture never waits for or depends on Groq.
 
-Review decisions use `POST /api/v1/agent/suggestions/{suggestion_id}/accept` with `{"proposal": ...}` or `POST /api/v1/agent/suggestions/{suggestion_id}/reject`. Acceptance revalidates the full versioned schema and task evidence against the current capture. Related-item links are not accepted yet; they remain a later roadmap item.
+Processing errors use stable `errorCode` values such as `invalid_output`, `provider_unavailable`, `provider_rejected`, `processing_error`, and `capture_changed`. Retryable provider outages retry up to three times; the mobile app explains terminal failure states while preserving the capture. Each user can start or explicitly retry up to 20 processing requests per UTC day. Repeating a request for an already active or completed capture revision is idempotent and does not consume another request. Exceeding the limit returns HTTP 429 with code `daily_processing_limit`; the counter is stored per user and UTC date.
+
+The mobile daily review screen reads `GET /api/v1/review/daily`, which paginates captures that need processing, have a failed job, are processing, or have a pending suggestion. Each entry includes a status-based priority and a factual explanation. Pending suggestions can be edited, accepted, or rejected there; unfinished captures can be processed or retried. `POST /api/v1/review/captures/{capture_id}/defer` snoozes a capture for 24 hours. Deferral applies to the current capture revision, so editing the capture puts the new revision back in the queue.
+
+Review decisions use `POST /api/v1/agent/suggestions/{suggestion_id}/accept` with `{"proposal": ...}` or `POST /api/v1/agent/suggestions/{suggestion_id}/reject`. Acceptance revalidates the full versioned schema and task evidence against the current capture. Model-proposed related IDs are cleared; links require a separate user action.
 
 Accepted items are available from `GET /api/v1/items` and `GET /api/v1/items/{item_id}`. Both routes scope results to the authenticated user. The mobile app includes a paginated saved-items list and a read-only detail view with the original capture for context.
 
 Capture search uses `GET /api/v1/captures?q=...`; saved-item search uses `GET /api/v1/items?q=...`. Queries use PostgreSQL's English full-text dictionary with web-style phrase and OR syntax. Both search paths retain user scoping and cursor pagination. The mobile search screen shows capture matches and saved-item matches, which open their capture card or item detail respectively.
+
+Related-item candidates are generated from shared meaningful words in each item's title, summary, labels, candidate tasks, and source capture. Candidates need at least two shared non-stopwords; the API scores the 500 most recent items and returns up to 10 matches. The detail screen shows matching terms so users can decide whether to link the items. `GET /api/v1/items/{item_id}/related` returns existing links and candidates; `POST` and `DELETE /api/v1/items/{item_id}/related/{related_item_id}` add or remove a user-approved link. Links are symmetric and scoped to one user. Model-proposed IDs never create links; review acceptance clears them, and linking always requires a separate user action.
 
 ```sh
 cd backend
@@ -243,7 +251,7 @@ Use a versioned schema. Example:
 
 Do not expose private chain-of-thought. Store only concise, user-facing explanations such as `reasoning_summary`.
 
-The Python API defines schema version `1` in `backend/app/agent_schema.py`. It rejects unknown fields, invalid item types, out-of-range confidence values, oversized output, and candidate-task evidence that does not appear verbatim in the original capture. Candidate due dates preserve the capture's wording rather than converting them into a reminder date. Related item IDs are syntax-checked by the schema but are not persisted or displayed as links yet. The Groq adapter and prompt version are in `backend/app/model_adapter.py` and `backend/app/agent_prompts.py`; the worker invokes this adapter only after a user requests processing.
+The Python API defines schema version `1` in `backend/app/agent_schema.py`. It rejects unknown fields, invalid item types, out-of-range confidence values, oversized output, and candidate-task evidence that does not appear verbatim in the original capture. Candidate due dates preserve the capture's wording rather than converting them into a reminder date. Related item IDs are part of the versioned schema for compatibility, but they are not trusted to create links. The Groq adapter and prompt version are in `backend/app/model_adapter.py` and `backend/app/agent_prompts.py`; the worker invokes this adapter only after a user requests processing.
 
 ## 6. Architecture
 
@@ -296,7 +304,7 @@ Start with a modular monolith. It is simpler to develop, test, deploy, and opera
 | Item | id, user_id, capture_id, type, title, body, status, created_at, updated_at |
 | Label | id, user_id, name |
 | ItemLabel | item_id, label_id |
-| Relationship | id, user_id, source_item_id, target_item_id, relationship_type, origin |
+| Relationship | user_id, item_low, item_high, created_at; symmetric, unique, and owner-scoped |
 | Suggestion | id, user_id, capture_id, payload_json, confidence, status, created_at |
 | AgentRun | id, user_id, capture_id, model, prompt_version, status, error_code, created_at |
 | AuditEvent | id, user_id, entity_type, entity_id, action, created_at |
@@ -415,27 +423,27 @@ A suggested solo-developer sequence. Time estimates are planning ranges, not com
 - [x] Implement classification, title, summary, labels, and candidate tasks.
 - [x] Build mobile suggestion review with accept/edit/reject and item persistence.
 - [x] Add a user-scoped saved-items list and read-only item details in mobile.
-- Add structured failure states and basic usage limits.
+- [x] Add structured failure states and basic usage limits.
 
 **Exit criteria:** A saved capture can be processed asynchronously and reviewed without losing the original text.
 
 ### Phase 3 — Search and connections (1–2 weeks)
 
 - [x] Add PostgreSQL full-text search across captures and saved-item metadata.
-- Suggest related items using simple text signals first.
-- Add relationship review and removal.
+- [x] Suggest related items using simple text signals first.
+- [x] Add relationship review and removal.
 - Evaluate embeddings only if keyword search is insufficient.
-- Add duplicate warnings.
+- [x] Add non-blocking duplicate warnings on capture creation.
 
 **Exit criteria:** Users can find past thoughts and inspect or dismiss suggested connections.
 
 ### Phase 4 — Daily review and polish (1 week)
 
-- Build a daily review queue.
-- Add prioritization explanations and deferral.
-- Improve mobile capture speed and accessibility.
-- Add empty, loading, retry, and offline/error states.
-- Run end-to-end tests on core journeys.
+- [x] Build a daily review queue.
+- [x] Add prioritization explanations and deferral.
+- [x] Improve mobile capture accessibility and touch targets while keeping capture and save on one screen.
+- [x] Add empty, loading, retry, and connection-error states across inbox, review, and saved-item screens.
+- [x] Run mobile end-to-end checks for capture, search, and daily review on the Android emulator.
 
 **Exit criteria:** A new user can capture thoughts and complete a useful review session without guidance.
 
@@ -504,7 +512,7 @@ Recommended order:
 9. Add the background job lifecycle.
 10. Build suggestion review.
 11. [x] Add full-text search.
-12. Add related-item suggestions.
+12. [x] Add related-item suggestions and relationship review/removal.
 13. Build daily review.
 14. Add end-to-end tests and beta-readiness checks.
 

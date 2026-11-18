@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 from psycopg.rows import dict_row
 
-from app import auth
+from app import agent_jobs, auth
 from app.agent_jobs import process_next_job
 from app.agent_schema import ProcessingProposal
 from app.main import app
@@ -279,6 +279,7 @@ def test_processing_is_explicit_idempotent_and_user_scoped(
     assert completed.status_code == 200
     job = completed.json()["job"]
     assert job["status"] == "succeeded"
+    assert job["maxAttempts"] == 3
     assert job["suggestion"]["proposal"]["title"] == "Remember the library book"
     assert job["suggestion"]["modelIdentifier"] == "synthetic-model"
 
@@ -292,6 +293,50 @@ def test_processing_is_explicit_idempotent_and_user_scoped(
             (job_id, job_id),
         ).fetchone()
     assert counts == {"jobs": 1, "suggestions": 1}
+
+
+def test_daily_processing_limit_counts_new_jobs_per_user(
+    client: TestClient,
+    identities: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(agent_jobs, "MAX_DAILY_PROCESSING_REQUESTS_PER_USER", 2)
+    owner_headers = {"Authorization": f"Bearer {identities['token_a']}"}
+    other_headers = {"Authorization": f"Bearer {identities['token_b']}"}
+    first_capture_id = client.post(
+        "/api/v1/captures", headers=owner_headers, json={"text": "First thought"}
+    ).json()["capture"]["id"]
+    second_capture_id = client.post(
+        "/api/v1/captures", headers=owner_headers, json={"text": "Second thought"}
+    ).json()["capture"]["id"]
+    other_capture_id = client.post(
+        "/api/v1/captures", headers=other_headers, json={"text": "Other thought"}
+    ).json()["capture"]["id"]
+
+    first = client.post(
+        f"/api/v1/captures/{first_capture_id}/process", headers=owner_headers
+    )
+    repeated = client.post(
+        f"/api/v1/captures/{first_capture_id}/process", headers=owner_headers
+    )
+    assert process_next_job(database_connection_factory, InvalidOutputAdapter())
+    retry = client.post(
+        f"/api/v1/captures/{first_capture_id}/process", headers=owner_headers
+    )
+    limited = client.post(
+        f"/api/v1/captures/{second_capture_id}/process", headers=owner_headers
+    )
+    other_user = client.post(
+        f"/api/v1/captures/{other_capture_id}/process", headers=other_headers
+    )
+
+    assert first.status_code == 202
+    assert repeated.status_code == 202
+    assert repeated.json()["job"]["id"] == first.json()["job"]["id"]
+    assert retry.status_code == 202
+    assert limited.status_code == 429
+    assert limited.json()["code"] == "daily_processing_limit"
+    assert other_user.status_code == 202
 
 
 def test_transient_failure_retries_job_without_duplicate_suggestions(
@@ -464,6 +509,7 @@ def test_accepting_edited_proposal_creates_one_user_owned_item(
     approved = dict(suggestion["proposal"])
     approved["title"] = "Return the library book"
     approved["summary"] = "Return the book to the library this week."
+    approved["related_item_ids"] = [str(uuid.uuid4())]
     suggestion_id = suggestion["id"]
 
     hidden = client.post(
@@ -482,7 +528,19 @@ def test_accepting_edited_proposal_creates_one_user_owned_item(
     result = accepted.json()["suggestion"]
     assert result["status"] == "accepted"
     assert result["acceptedProposal"]["title"] == "Return the library book"
+    assert result["acceptedProposal"]["related_item_ids"] == []
     assert result["itemId"]
+    with psycopg.connect(TEST_DATABASE_URL, row_factory=dict_row) as connection:
+        assert (
+            connection.execute(
+                """
+                SELECT count(*) AS count FROM item_relationships
+                WHERE user_id = %s AND (item_low = %s OR item_high = %s)
+                """,
+                (identities["user_a"], result["itemId"], result["itemId"]),
+            ).fetchone()["count"]
+            == 0
+        )
 
     repeated = client.post(
         f"/api/v1/agent/suggestions/{suggestion_id}/accept",
@@ -723,3 +781,194 @@ def test_capture_full_text_search_stems_terms_and_stays_user_scoped(
     ]
     assert len(other_results.json()["captures"]) == 1
     assert owner_results.json()["captures"][0]["currentText"].startswith("Yesterday")
+
+
+def test_capture_creation_warns_about_similar_captures_without_crossing_users(
+    client: TestClient,
+    identities: dict[str, str],
+) -> None:
+    owner_headers = {"Authorization": f"Bearer {identities['token_a']}"}
+    other_headers = {"Authorization": f"Bearer {identities['token_b']}"}
+    first = client.post(
+        "/api/v1/captures",
+        headers=owner_headers,
+        json={"text": "Set reminders to renew the passport before summer holidays."},
+    ).json()
+    similar = client.post(
+        "/api/v1/captures",
+        headers=owner_headers,
+        json={"text": "Set reminders to renew the passport before summer trip."},
+    )
+    other_user = client.post(
+        "/api/v1/captures",
+        headers=other_headers,
+        json={"text": "Set reminders to renew the passport before summer trip."},
+    )
+
+    assert similar.status_code == 201
+    assert similar.json()["capture"]["currentText"].endswith("summer trip.")
+    assert similar.json()["possibleDuplicates"] == [
+        {
+            "id": first["capture"]["id"],
+            "currentText": (
+                "Set reminders to renew the passport before summer holidays."
+            ),
+            "createdAt": first["capture"]["createdAt"],
+        }
+    ]
+    assert other_user.json()["possibleDuplicates"] == []
+
+
+def test_related_item_suggestions_require_explicit_link_and_can_be_removed(
+    client: TestClient,
+    identities: dict[str, str],
+) -> None:
+    owner_headers = {"Authorization": f"Bearer {identities['token_a']}"}
+    other_headers = {"Authorization": f"Bearer {identities['token_b']}"}
+
+    def create_item(headers: dict[str, str], text: str) -> str:
+        capture = client.post(
+            "/api/v1/captures", headers=headers, json={"text": text}
+        ).json()["capture"]
+        job = client.post(
+            f"/api/v1/captures/{capture['id']}/process", headers=headers
+        ).json()["job"]
+        assert process_next_job(database_connection_factory, FixedProposalAdapter())
+        suggestion = client.get(
+            f"/api/v1/agent/jobs/{job['id']}", headers=headers
+        ).json()["job"]["suggestion"]
+        accepted = client.post(
+            f"/api/v1/agent/suggestions/{suggestion['id']}/accept",
+            headers=headers,
+            json={"proposal": suggestion["proposal"]},
+        )
+        return accepted.json()["suggestion"]["itemId"]
+
+    first_id = create_item(owner_headers, "Library book for garden research.")
+    second_id = create_item(owner_headers, "Garden library book recommendations.")
+    other_id = create_item(other_headers, "Garden library book notes.")
+
+    suggestions = client.get(
+        f"/api/v1/items/{first_id}/related", headers=owner_headers
+    ).json()
+    suggested_ids = {entry["item"]["id"] for entry in suggestions["suggestions"]}
+    assert second_id in suggested_ids
+    assert other_id not in suggested_ids
+    assert suggestions["relatedItems"] == []
+
+    assert (
+        client.post(
+            f"/api/v1/items/{first_id}/related/{first_id}", headers=owner_headers
+        ).status_code
+        == 400
+    )
+    assert (
+        client.post(
+            f"/api/v1/items/{first_id}/related/{other_id}", headers=owner_headers
+        ).status_code
+        == 404
+    )
+    linked = client.post(
+        f"/api/v1/items/{first_id}/related/{second_id}", headers=owner_headers
+    )
+    assert linked.status_code == 201
+    assert (
+        client.post(
+            f"/api/v1/items/{second_id}/related/{first_id}", headers=owner_headers
+        ).status_code
+        == 201
+    )
+
+    linked_items = client.get(
+        f"/api/v1/items/{first_id}/related", headers=owner_headers
+    ).json()
+    assert [item["id"] for item in linked_items["relatedItems"]] == [second_id]
+    assert second_id not in {
+        entry["item"]["id"] for entry in linked_items["suggestions"]
+    }
+
+    removed = client.delete(
+        f"/api/v1/items/{first_id}/related/{second_id}", headers=owner_headers
+    )
+    assert removed.status_code == 204
+    unlinked = client.get(
+        f"/api/v1/items/{first_id}/related", headers=owner_headers
+    ).json()
+    assert unlinked["relatedItems"] == []
+    assert second_id in {entry["item"]["id"] for entry in unlinked["suggestions"]}
+
+
+def test_daily_review_queue_prioritizes_states_and_defers_user_scoped_captures(
+    client: TestClient,
+    identities: dict[str, str],
+) -> None:
+    owner_headers = {"Authorization": f"Bearer {identities['token_a']}"}
+    other_headers = {"Authorization": f"Bearer {identities['token_b']}"}
+
+    def create_capture(text: str) -> str:
+        return client.post(
+            "/api/v1/captures", headers=owner_headers, json={"text": text}
+        ).json()["capture"]["id"]
+
+    ready_id = create_capture("Review this library book note.")
+    processing_id = create_capture("Processing this capture about gardening.")
+    unprocessed_id = create_capture("An unprocessed capture about travel.")
+    accepted_id = create_capture("A capture already reviewed about cooking.")
+
+    assert (
+        client.post(
+            f"/api/v1/captures/{ready_id}/process", headers=owner_headers
+        ).status_code
+        == 202
+    )
+    assert process_next_job(database_connection_factory, FixedProposalAdapter())
+    accepted_job = client.post(
+        f"/api/v1/captures/{accepted_id}/process", headers=owner_headers
+    ).json()["job"]
+    assert process_next_job(database_connection_factory, FixedProposalAdapter())
+    accepted_suggestion = client.get(
+        f"/api/v1/agent/jobs/{accepted_job['id']}", headers=owner_headers
+    ).json()["job"]["suggestion"]
+    assert (
+        client.post(
+            f"/api/v1/agent/suggestions/{accepted_suggestion['id']}/accept",
+            headers=owner_headers,
+            json={"proposal": accepted_suggestion["proposal"]},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            f"/api/v1/captures/{processing_id}/process", headers=owner_headers
+        ).status_code
+        == 202
+    )
+
+    response = client.get("/api/v1/review/daily", headers=owner_headers)
+    assert response.status_code == 200
+    entries = {entry["capture"]["id"]: entry for entry in response.json()["entries"]}
+    assert set(entries) == {ready_id, processing_id, unprocessed_id}
+    assert entries[ready_id]["reviewStatus"] == "suggestion_ready"
+    assert entries[ready_id]["priority"] == "high"
+    assert entries[ready_id]["suggestion"] is not None
+    assert entries[processing_id]["reviewStatus"] == "processing"
+    assert entries[processing_id]["priority"] == "low"
+    assert entries[unprocessed_id]["reviewStatus"] == "needs_processing"
+    assert "not been processed" in entries[unprocessed_id]["priorityExplanation"]
+
+    assert (
+        client.post(
+            f"/api/v1/review/captures/{unprocessed_id}/defer",
+            headers=other_headers,
+        ).status_code
+        == 404
+    )
+    deferred = client.post(
+        f"/api/v1/review/captures/{unprocessed_id}/defer", headers=owner_headers
+    )
+    assert deferred.status_code == 200
+    assert deferred.json()["captureId"] == unprocessed_id
+    refreshed_entries = client.get(
+        "/api/v1/review/daily", headers=owner_headers
+    ).json()["entries"]
+    assert unprocessed_id not in {entry["capture"]["id"] for entry in refreshed_entries}

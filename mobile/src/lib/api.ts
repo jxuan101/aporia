@@ -14,6 +14,16 @@ const captureListSchema = z.object({
 });
 
 const captureResponseSchema = z.object({ capture: captureSchema });
+const captureCreateResponseSchema = z.object({
+  capture: captureSchema,
+  possibleDuplicates: z.array(
+    z.object({
+      id: z.string().uuid(),
+      currentText: z.string(),
+      createdAt: z.string().datetime(),
+    }),
+  ),
+});
 const sessionResponseSchema = z.object({
   token: z.string().min(1),
   expiresAt: z.string().datetime(),
@@ -51,6 +61,16 @@ const itemDetailSchema = z.object({
     capture: z.object({ originalText: z.string(), currentText: z.string() }),
   }),
 });
+const relatedItemsResponseSchema = z.object({
+  relatedItems: z.array(itemSchema),
+  suggestions: z.array(
+    z.object({
+      item: itemSchema,
+      matchTerms: z.array(z.string()),
+      score: z.number().min(0).max(1),
+    }),
+  ),
+});
 
 const processingProposalSchema = z.object({
   schema_version: z.literal("1"),
@@ -82,6 +102,7 @@ const agentJobSchema = z.object({
   captureId: z.string().uuid(),
   status: z.enum(["queued", "running", "succeeded", "failed", "cancelled"]),
   attemptCount: z.number().int().nonnegative(),
+  maxAttempts: z.number().int().positive(),
   errorCode: z.string().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
@@ -89,6 +110,37 @@ const agentJobSchema = z.object({
 });
 
 const agentJobResponseSchema = z.object({ job: agentJobSchema });
+const dailyReviewResponseSchema = z.object({
+  entries: z.array(
+    z.object({
+      capture: captureSchema,
+      reviewStatus: z.enum([
+        "suggestion_ready",
+        "processing_failed",
+        "processing",
+        "needs_processing",
+      ]),
+      priority: z.enum(["high", "normal", "low"]),
+      priorityExplanation: z.string(),
+      job: z
+        .object({
+          id: z.string().uuid(),
+          status: z.enum(["queued", "running", "succeeded", "failed"]),
+          attemptCount: z.number().int().nonnegative(),
+          maxAttempts: z.number().int().positive(),
+          errorCode: z.string().nullable(),
+        })
+        .nullable(),
+      suggestion: z
+        .object({
+          id: z.string().uuid(),
+          proposal: processingProposalSchema,
+        })
+        .nullable(),
+    }),
+  ),
+  nextCursor: z.string().uuid().nullable(),
+});
 const suggestionDecisionResponseSchema = z.object({
   suggestion: z.object({
     id: z.string().uuid(),
@@ -100,12 +152,17 @@ const suggestionDecisionResponseSchema = z.object({
 });
 
 export type Capture = z.infer<typeof captureSchema>;
+export type CaptureCreation = z.infer<typeof captureCreateResponseSchema>;
 export type BrainDumpItem = z.infer<typeof itemSchema>;
 export type BrainDumpItemDetail = z.infer<typeof itemDetailSchema>["item"];
+export type RelatedItems = z.infer<typeof relatedItemsResponseSchema>;
 export type MobileSession = z.infer<typeof sessionResponseSchema>;
 export type ProcessingProposal = z.infer<typeof processingProposalSchema>;
 export type AgentSuggestion = z.infer<typeof agentSuggestionSchema>;
 export type AgentJob = z.infer<typeof agentJobSchema>;
+export type DailyReviewEntry = z.infer<
+  typeof dailyReviewResponseSchema
+>["entries"][number];
 export type SuggestionDecision = z.infer<
   typeof suggestionDecisionResponseSchema
 >["suggestion"];
@@ -114,6 +171,7 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status?: number,
+    readonly code?: string,
   ) {
     super(message);
   }
@@ -184,7 +242,14 @@ async function request(
       typeof responseBody.error === "string"
         ? responseBody.error
         : "The request could not be completed.";
-    throw new ApiError(message, response.status);
+    const code =
+      typeof responseBody === "object" &&
+      responseBody !== null &&
+      "code" in responseBody &&
+      typeof responseBody.code === "string"
+        ? responseBody.code
+        : undefined;
+    throw new ApiError(message, response.status, code);
   }
 
   return responseBody;
@@ -242,16 +307,49 @@ export async function getItem(
   return itemDetailSchema.parse(response).item;
 }
 
+export async function getRelatedItems(
+  token: string,
+  itemId: string,
+): Promise<RelatedItems> {
+  const response = await request(
+    `/api/v1/items/${encodeURIComponent(itemId)}/related`,
+    { token },
+  );
+  return relatedItemsResponseSchema.parse(response);
+}
+
+export async function addRelatedItem(
+  token: string,
+  itemId: string,
+  relatedItemId: string,
+): Promise<void> {
+  await request(
+    `/api/v1/items/${encodeURIComponent(itemId)}/related/${encodeURIComponent(relatedItemId)}`,
+    { token, method: "POST" },
+  );
+}
+
+export async function removeRelatedItem(
+  token: string,
+  itemId: string,
+  relatedItemId: string,
+): Promise<void> {
+  await request(
+    `/api/v1/items/${encodeURIComponent(itemId)}/related/${encodeURIComponent(relatedItemId)}`,
+    { token, method: "DELETE" },
+  );
+}
+
 export async function createCapture(
   token: string,
   text: string,
-): Promise<Capture> {
+): Promise<CaptureCreation> {
   const response = await request("/api/v1/captures", {
     token,
     method: "POST",
     body: { text },
   });
-  return captureResponseSchema.parse(response).capture;
+  return captureCreateResponseSchema.parse(response);
 }
 
 export async function updateCapture(
@@ -305,6 +403,25 @@ export async function getProcessingJob(
     { token },
   );
   return agentJobResponseSchema.parse(response).job;
+}
+
+export async function getDailyReviewQueue(
+  token: string,
+  before?: string,
+): Promise<z.infer<typeof dailyReviewResponseSchema>> {
+  const query = before ? `?before=${encodeURIComponent(before)}` : "";
+  const response = await request(`/api/v1/review/daily${query}`, { token });
+  return dailyReviewResponseSchema.parse(response);
+}
+
+export async function deferCaptureReview(
+  token: string,
+  captureId: string,
+): Promise<void> {
+  await request(
+    `/api/v1/review/captures/${encodeURIComponent(captureId)}/defer`,
+    { token, method: "POST" },
+  );
 }
 
 export async function acceptProcessingSuggestion(

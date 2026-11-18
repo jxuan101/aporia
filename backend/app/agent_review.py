@@ -73,7 +73,10 @@ def accept_suggestion(
         return None
 
     if row["status"] == "accepted":
-        if proposal_data != row["accepted_payload_json"]:
+        comparison_data = proposal_data
+        if isinstance(proposal_data, dict) and "related_item_ids" in proposal_data:
+            comparison_data = {**proposal_data, "related_item_ids": []}
+        if comparison_data != row["accepted_payload_json"]:
             raise ReviewConflictError("This suggestion was accepted with other edits.")
         item = connection.execute(
             "SELECT id FROM items WHERE user_id = %s AND suggestion_id = %s",
@@ -113,8 +116,9 @@ def accept_suggestion(
         proposal_data,
         original_capture=row["current_text"],
     )
+    # Model IDs are never used to create links; links require their own explicit action.
     if proposal.related_item_ids:
-        raise ValueError("Related-item links are not available for review yet.")
+        proposal = proposal.model_copy(update={"related_item_ids": []})
 
     accepted_payload = proposal.model_dump(mode="json")
     item = connection.execute(

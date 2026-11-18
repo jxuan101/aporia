@@ -7,10 +7,15 @@ from psycopg import Connection
 from app.auth import current_user_id
 from app.database import get_connection
 from app.errors import ApiError
+from app.text_signals import meaningful_terms, normalized_words
 from app.validation import capture_body, capture_id, read_json_body, search_query
 
 router = APIRouter(prefix="/api/v1/captures")
 PAGE_SIZE = 30
+DUPLICATE_SCAN_LIMIT = 500
+MAX_DUPLICATE_WARNINGS = 3
+MIN_DUPLICATE_TERMS = 5
+MIN_DUPLICATE_OVERLAP = 0.8
 
 
 def serialize_capture(row: dict[str, Any]) -> dict[str, str]:
@@ -21,6 +26,54 @@ def serialize_capture(row: dict[str, Any]) -> dict[str, str]:
         "createdAt": row["created_at"].isoformat().replace("+00:00", "Z"),
         "updatedAt": row["updated_at"].isoformat().replace("+00:00", "Z"),
     }
+
+
+def find_possible_duplicates(
+    connection: Connection,
+    *,
+    user_id: str,
+    capture_id: UUID,
+    text: str,
+) -> list[dict[str, object]]:
+    words = normalized_words(text)
+    terms = meaningful_terms(text)
+    rows = connection.execute(
+        """
+        SELECT id, raw_text, current_text, created_at, updated_at
+        FROM captures
+        WHERE user_id = %s AND id <> %s
+        ORDER BY created_at DESC, id DESC
+        LIMIT %s
+        """,
+        (user_id, capture_id, DUPLICATE_SCAN_LIMIT),
+    ).fetchall()
+    matches: list[tuple[float, str, dict[str, object]]] = []
+    for row in rows:
+        candidate_words = normalized_words(row["current_text"])
+        candidate_terms = meaningful_terms(row["current_text"])
+        if words == candidate_words:
+            similarity = 1.0
+        elif min(len(terms), len(candidate_terms)) >= MIN_DUPLICATE_TERMS:
+            similarity = len(terms.intersection(candidate_terms)) / min(
+                len(terms), len(candidate_terms)
+            )
+        else:
+            continue
+        if similarity < MIN_DUPLICATE_OVERLAP:
+            continue
+        matches.append(
+            (
+                similarity,
+                row["created_at"].isoformat(),
+                {
+                    "id": str(row["id"]),
+                    "currentText": row["current_text"],
+                    "createdAt": row["created_at"].isoformat().replace("+00:00", "Z"),
+                },
+            )
+        )
+    matches.sort(key=lambda match: (match[0], match[1]), reverse=True)
+    return [match[2] for match in matches[:MAX_DUPLICATE_WARNINGS]]
 
 
 @router.get("")
@@ -94,7 +147,15 @@ async def create_capture(
         """,
         (user_id, text, text),
     ).fetchone()
-    return {"capture": serialize_capture(row)}
+    return {
+        "capture": serialize_capture(row),
+        "possibleDuplicates": find_possible_duplicates(
+            connection,
+            user_id=user_id,
+            capture_id=row["id"],
+            text=text,
+        ),
+    }
 
 
 @router.patch("/{capture_id}")

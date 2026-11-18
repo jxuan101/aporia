@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -11,26 +11,75 @@ import * as SecureStore from "expo-secure-store";
 import { router, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { getItem, type BrainDumpItemDetail } from "../../lib/api";
+import {
+  addRelatedItem,
+  getItem,
+  getRelatedItems,
+  type BrainDumpItemDetail,
+  type RelatedItems,
+  removeRelatedItem,
+} from "../../lib/api";
 import { SESSION_KEY } from "../../lib/session";
 
 export default function ItemDetailScreen() {
   const { itemId } = useLocalSearchParams<{ itemId: string }>();
   const [item, setItem] = useState<BrainDumpItemDetail | null>(null);
+  const [related, setRelated] = useState<RelatedItems | null>(null);
+  const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [updatingLink, setUpdatingLink] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [linkError, setLinkError] = useState<string | null>(null);
+
+  const refreshRelated = useCallback(async (sessionToken: string) => {
+    setRelated(await getRelatedItems(sessionToken, itemId));
+  }, [itemId]);
+
+  const loadDetail = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const sessionToken = await SecureStore.getItemAsync(SESSION_KEY);
+      if (!sessionToken) {
+        router.replace("/");
+        return;
+      }
+      const [result, relatedResult] = await Promise.all([
+        getItem(sessionToken, itemId),
+        getRelatedItems(sessionToken, itemId),
+      ]);
+      setToken(sessionToken);
+      setItem(result);
+      setRelated(relatedResult);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "This item could not be loaded.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [itemId]);
 
   useEffect(() => {
     let active = true;
-    async function loadDetail() {
+    async function loadInitialDetail() {
       try {
-        const token = await SecureStore.getItemAsync(SESSION_KEY);
-        if (!token) {
+        const sessionToken = await SecureStore.getItemAsync(SESSION_KEY);
+        if (!sessionToken) {
           router.replace("/");
           return;
         }
-        const result = await getItem(token, itemId);
-        if (active) setItem(result);
+        const [result, relatedResult] = await Promise.all([
+          getItem(sessionToken, itemId),
+          getRelatedItems(sessionToken, itemId),
+        ]);
+        if (active) {
+          setToken(sessionToken);
+          setItem(result);
+          setRelated(relatedResult);
+        }
       } catch (requestError) {
         if (active) {
           setError(
@@ -43,11 +92,33 @@ export default function ItemDetailScreen() {
         if (active) setLoading(false);
       }
     }
-    void loadDetail();
+    void loadInitialDetail();
     return () => {
       active = false;
     };
   }, [itemId]);
+
+  async function updateRelationship(relatedItemId: string, linked: boolean) {
+    if (!token) return;
+    setUpdatingLink(true);
+    setLinkError(null);
+    try {
+      if (linked) {
+        await removeRelatedItem(token, itemId, relatedItemId);
+      } else {
+        await addRelatedItem(token, itemId, relatedItemId);
+      }
+      await refreshRelated(token);
+    } catch (requestError) {
+      setLinkError(
+        requestError instanceof Error
+          ? requestError.message
+          : "The relationship could not be updated.",
+      );
+    } finally {
+      setUpdatingLink(false);
+    }
+  }
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -62,21 +133,24 @@ export default function ItemDetailScreen() {
       </View>
       {loading ? (
         <View style={styles.loading}>
-          <ActivityIndicator color="#2F4636" />
+          <ActivityIndicator accessibilityLabel="Loading saved item" color="#2F4636" />
         </View>
       ) : error || !item ? (
         <View style={styles.content}>
           <Text accessibilityRole="alert" style={styles.errorText}>
             {error ?? "This item is unavailable."}
           </Text>
-          <Pressable accessibilityRole="button" onPress={() => router.back()}>
+          <Pressable accessibilityRole="button" onPress={() => void loadDetail()} style={styles.retryButton}>
+            <Text style={styles.backText}>Try loading again</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" onPress={() => router.back()} style={styles.retryButton}>
             <Text style={styles.backText}>Return to saved items</Text>
           </Pressable>
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.content}>
           <Text style={styles.eyebrow}>{item.type.toUpperCase()}</Text>
-          <Text style={styles.title}>{item.title}</Text>
+          <Text accessibilityRole="header" style={styles.title}>{item.title}</Text>
           <Text style={styles.summary}>{item.summary}</Text>
           {item.labels.length ? (
             <View style={styles.section}>
@@ -98,6 +172,74 @@ export default function ItemDetailScreen() {
               ))}
             </View>
           ) : null}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Related items</Text>
+            {linkError ? (
+              <Text accessibilityRole="alert" style={styles.errorText}>
+                {linkError}
+              </Text>
+            ) : null}
+            {related?.relatedItems.length ? (
+              related.relatedItems.map((relatedItem) => (
+                <View key={relatedItem.id} style={styles.relatedCard}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open related item ${relatedItem.title}`}
+                    onPress={() =>
+                      router.push({
+                        pathname: "./[itemId]",
+                        params: { itemId: relatedItem.id },
+                      })
+                    }
+                  >
+                    <Text style={styles.taskTitle}>{relatedItem.title}</Text>
+                    <Text numberOfLines={2} style={styles.text}>
+                      {relatedItem.summary}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove link to ${relatedItem.title}`}
+                    disabled={updatingLink}
+                    onPress={() => void updateRelationship(relatedItem.id, true)}
+                    style={styles.linkAction}
+                  >
+                    <Text style={styles.linkActionText}>
+                      {updatingLink ? "Updating..." : "Remove link"}
+                    </Text>
+                  </Pressable>
+                </View>
+              ))
+            ) : (
+              <Text style={styles.text}>No linked items yet.</Text>
+            )}
+            {related?.suggestions.length ? (
+              <View style={styles.suggestions}>
+                <Text style={styles.sectionTitle}>Might be related</Text>
+                {related.suggestions.map(({ item: candidate, matchTerms }) => (
+                  <View key={candidate.id} style={styles.relatedCard}>
+                    <Text style={styles.taskTitle}>{candidate.title}</Text>
+                    <Text numberOfLines={2} style={styles.text}>
+                      {candidate.summary}
+                    </Text>
+                    <Text style={styles.matchTerms}>
+                      Shared terms: {matchTerms.join(", ")}
+                    </Text>
+                    <Pressable
+                      accessibilityRole="button"
+                      disabled={updatingLink}
+                      onPress={() => void updateRelationship(candidate.id, false)}
+                      style={styles.linkAction}
+                    >
+                      <Text style={styles.linkActionText}>
+                        {updatingLink ? "Updating..." : "Link items"}
+                      </Text>
+                    </Pressable>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+          </View>
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Original capture</Text>
             <Text style={styles.original}>{item.capture.originalText}</Text>
@@ -122,7 +264,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 12,
   },
-  backButton: { justifyContent: "center", minHeight: 36 },
+  backButton: { justifyContent: "center", minHeight: 44 },
+  retryButton: { alignSelf: "flex-start", justifyContent: "center", minHeight: 44, paddingRight: 12 },
   backText: { color: "#53685A", fontSize: 15, fontWeight: "700" },
   loading: { alignItems: "center", flex: 1, justifyContent: "center" },
   content: { padding: 22, paddingBottom: 40 },
@@ -137,5 +280,10 @@ const styles = StyleSheet.create({
   source: { color: "#68746B", fontSize: 12, lineHeight: 18, marginTop: 8 },
   original: { backgroundColor: "#FFFFFF", borderRadius: 12, color: "#435147", fontSize: 14, lineHeight: 22, padding: 14 },
   currentCapture: { marginTop: 14 },
+  relatedCard: { backgroundColor: "#FFFFFF", borderRadius: 12, marginTop: 8, padding: 13 },
+  suggestions: { marginTop: 18 },
+  matchTerms: { color: "#68746B", fontSize: 12, marginTop: 8 },
+  linkAction: { alignSelf: "flex-start", minHeight: 44, justifyContent: "center", marginTop: 5, paddingHorizontal: 8 },
+  linkActionText: { color: "#53685A", fontSize: 13, fontWeight: "700" },
   errorText: { color: "#A33D32", fontSize: 15, lineHeight: 22, marginBottom: 14 },
 });
