@@ -24,11 +24,13 @@ Start the Python API in another terminal:
 ```sh
 cd backend
 python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .
-python -m app.migrate
-uvicorn app.main:app --reload --host 0.0.0.0 --port 3000
+make install
+make migrate
+make api
 ```
+
+Run the processing worker in another terminal with `cd backend && make worker`.
+Use `make help` in `backend/` to see the available backend commands.
 
 If the root `.env.local` already exists, preserve it and set `AUTH_GOOGLE_ID` to the Google **Web application** OAuth client ID. The Android OAuth client ID is a separate credential and cannot be used as the backend audience. The backend verifies native Google ID tokens against the Web client ID. Do not put client secrets in the mobile app; native sign-in does not use a client secret.
 
@@ -80,7 +82,7 @@ The job table deduplicates requests for the same capture revision, claims work w
 
 Google identities are not automatically linked by email. Existing data remains attached to its original Google or GitHub identity unless the same Google account is already linked or an explicit migration is performed.
 
-Add versioned SQL migrations under `backend/migrations/` and apply them with `cd backend && python -m app.migrate`. Pure backend tests run with `cd backend && pip install -e '.[test]' && pytest`. The database integration tests require a dedicated local database named with the `_test` suffix; create `braindump_test` once with `docker compose exec -T db createdb -U braindump braindump_test`, then run `BRAINDUMP_TEST_DATABASE_URL=postgresql://braindump:braindump-local@127.0.0.1:5432/braindump_test pytest`. Run Python lint with `ruff check app tests` and mobile checks with `cd mobile && npm run lint && npm run typecheck`.
+Add versioned SQL migrations under `backend/migrations/` and apply them with `cd backend && make migrate`. Install test and lint dependencies with `cd backend && make install-dev`; run unit tests with `make test` and lint with `make lint`. The database integration tests require a dedicated local database named with the `_test` suffix; create `braindump_test` once with `docker compose exec -T db createdb -U braindump braindump_test`, then run `BRAINDUMP_TEST_DATABASE_URL=postgresql://braindump:braindump-local@127.0.0.1:5432/braindump_test make integration-test`. Run mobile checks with `cd mobile && npm run lint && npm run typecheck`.
 
 ## 1. Product vision
 
