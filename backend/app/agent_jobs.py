@@ -141,7 +141,12 @@ def get_job_for_user(
             s.created_at AS suggestion_created_at, i.id AS item_id
         FROM agent_jobs j
         LEFT JOIN agent_suggestions s ON s.job_id = j.id AND s.user_id = j.user_id
-        LEFT JOIN items i ON i.suggestion_id = s.id AND i.user_id = s.user_id
+        LEFT JOIN LATERAL (
+            SELECT id FROM items
+            WHERE user_id = j.user_id AND capture_id = j.capture_id
+            ORDER BY updated_at DESC, created_at DESC
+            LIMIT 1
+        ) i ON TRUE
         WHERE j.id = %s AND j.user_id = %s
         """,
         (job_id, user_id),

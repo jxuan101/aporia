@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as SecureStore from "expo-secure-store";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 
 import {
   acceptProcessingSuggestion,
@@ -28,22 +28,19 @@ import {
   createCapture,
   deleteCapture,
   exchangeGoogleIdToken,
-  exportCaptures,
   getProcessingJob,
   listCaptures,
   listItems,
   rejectProcessingSuggestion,
   requestCaptureProcessing,
-  revokeSession,
   updateCapture,
-} from "../lib/api";
+} from "../../lib/api";
 import {
-  clearGoogleSignIn,
   googleSignInConfigured,
   signInWithGoogle,
-} from "../lib/google-auth";
-import { shareCaptureExport } from "../lib/export";
-import { SESSION_KEY } from "../lib/session";
+} from "../../lib/google-auth";
+import { SESSION_KEY } from "../../lib/session";
+import { SpeechInputToggle } from "../../components/SpeechInputToggle";
 
 const JOB_STATUS_POLL_INITIAL_DELAY_MS = 2_000;
 const JOB_STATUS_POLL_MAX_DELAY_MS = 10_000;
@@ -309,77 +306,92 @@ function CaptureCard({
 
   return (
     <View style={styles.captureCard}>
-      <Text style={styles.captureDate}>
-        {new Date(capture.createdAt).toLocaleString()}
-      </Text>
-      {isEditingCapture ? (
-        <TextInput
-          accessibilityLabel="Edit capture"
-          autoFocus
-          editable={!busy}
-          multiline
-          onChangeText={(text) =>
-            setDraftState({ sourceText: capture.currentText, text })
-          }
-          placeholder="Write your thought"
-          style={styles.captureInput}
-          textAlignVertical="top"
-          value={draft}
-        />
-      ) : (
-        <Text accessibilityLabel="Capture text" style={styles.captureText}>
-          {capture.currentText}
+      <View style={styles.captureCardHeader}>
+        <Text style={styles.captureDate}>
+          {new Date(capture.createdAt).toLocaleString()}
         </Text>
-      )}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Delete capture"
+            disabled={busy}
+            onPress={confirmDelete}
+            style={styles.deleteCaptureButton}
+          >
+            <Text style={styles.deleteCaptureButtonText}>×</Text>
+          </Pressable>
+      </View>
+      <Text accessibilityLabel="Capture text" style={styles.captureText}>
+        {capture.currentText}
+      </Text>
+      <Modal
+        animationType="slide"
+        onRequestClose={() => setIsEditingCapture(false)}
+        visible={isEditingCapture}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.captureEditModal}
+        >
+          <SafeAreaView edges={["top", "left", "right"]} style={styles.captureEditSafeArea}>
+            <View style={styles.captureEditHeader}>
+              <Text accessibilityRole="header" style={styles.captureEditTitle}>
+                Edit capture
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                disabled={busy}
+                onPress={() => {
+                  setDraftState({ sourceText: capture.currentText, text: capture.currentText });
+                  setIsEditingCapture(false);
+                  Keyboard.dismiss();
+                }}
+                style={styles.linkButton}
+              >
+                <Text style={styles.linkText}>Cancel</Text>
+              </Pressable>
+            </View>
+            <TextInput
+              accessibilityLabel="Edit capture text"
+              autoFocus
+              editable={!busy}
+              maxLength={10_000}
+              multiline
+              onChangeText={(text) =>
+                setDraftState({ sourceText: capture.currentText, text })
+              }
+              placeholder="Write your thought"
+              style={styles.captureEditInput}
+              textAlignVertical="top"
+              value={draft}
+            />
+            <Pressable
+              accessibilityRole="button"
+              disabled={busy || draft === capture.currentText}
+              onPress={() => void save()}
+              style={[styles.captureEditSave, (busy || draft === capture.currentText) && styles.disabledButton]}
+            >
+              <Text style={styles.primaryButtonText}>{busy ? "Saving..." : "Save changes"}</Text>
+            </Pressable>
+          </SafeAreaView>
+        </KeyboardAvoidingView>
+      </Modal>
       {error && (
         <Text accessibilityRole="alert" style={styles.errorText}>
           {error}
         </Text>
       )}
       <View style={styles.cardActions}>
-        {isEditingCapture ? (
-          <>
-            <Pressable
-              accessibilityRole="button"
-              disabled={busy || draft === capture.currentText}
-              onPress={() => void save()}
-              style={({ pressed }) => [
-                styles.smallButton,
-                styles.secondaryButton,
-                (busy || draft === capture.currentText) && styles.disabledButton,
-                pressed && styles.pressedButton,
-              ]}
-            >
-              <Text style={styles.secondaryButtonText}>
-                {busy ? "Saving..." : "Save edit"}
-              </Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              disabled={busy}
-              onPress={() => {
-                setDraftState({
-                  sourceText: capture.currentText,
-                  text: capture.currentText,
-                });
-                setIsEditingCapture(false);
-                Keyboard.dismiss();
-              }}
-              style={styles.linkButton}
-            >
-              <Text style={styles.linkText}>Cancel edit</Text>
-            </Pressable>
-          </>
-        ) : (
-          <Pressable
-            accessibilityRole="button"
-            disabled={busy}
-            onPress={() => setIsEditingCapture(true)}
-            style={styles.linkButton}
-          >
-            <Text style={styles.linkText}>Edit capture</Text>
-          </Pressable>
-        )}
+        <Pressable
+          accessibilityRole="button"
+          disabled={busy}
+          onPress={() => {
+            setDraftState({ sourceText: capture.currentText, text: capture.currentText });
+            setIsEditingCapture(true);
+          }}
+          style={styles.linkButton}
+        >
+          <Text style={styles.linkText}>Edit capture</Text>
+        </Pressable>
         {capture.originalText !== capture.currentText && (
           <Pressable
             accessibilityRole="button"
@@ -393,35 +405,41 @@ function CaptureCard({
         )}
         <Pressable
           accessibilityRole="button"
-          disabled={busy}
-          onPress={confirmDelete}
-          style={styles.linkButton}
-        >
-          <Text style={styles.deleteText}>Delete</Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
           disabled={busy || Boolean(isJobActive)}
-          onPress={() => void requestProcessing()}
+          onPress={() => {
+                  if (suggestion?.status === "accepted" && suggestion.itemId) {
+              router.push({ pathname: "/items/[itemId]", params: { itemId: suggestion.itemId } });
+            } else if (!suggestion || suggestion.status !== "pending") {
+              void requestProcessing();
+            }
+          }}
           style={[
             styles.smallButton,
             styles.secondaryButton,
-            (busy || Boolean(isJobActive)) && styles.disabledButton,
+            (busy || Boolean(isJobActive) || suggestion?.status === "pending") && styles.disabledButton,
           ]}
         >
           <Text style={styles.secondaryButtonText}>
-            {busy
-              ? "Starting..."
-              : isJobActive
-                ? "Processing..."
-                : job?.status === "failed" || job?.status === "cancelled"
-                  ? "Try processing again"
-                  : job?.suggestion
-                    ? "Refresh proposal"
-                    : "Process with AI"}
+            {suggestion?.status === "accepted" && suggestion.itemId
+              ? "Open saved item"
+              : suggestion?.status === "pending"
+                ? "Suggestion ready below"
+                : busy
+                  ? "Starting..."
+                  : isJobActive
+                    ? "Processing..."
+                    : job?.status === "failed" || job?.status === "cancelled"
+                      ? "Try processing again"
+                      : "Process with AI"}
           </Text>
         </Pressable>
       </View>
+      {showOriginal && (
+        <View style={styles.originalPanel}>
+          <Text style={styles.originalLabel}>Original capture</Text>
+          <Text style={styles.originalText}>{capture.originalText}</Text>
+        </View>
+      )}
       {job && (
         <View style={styles.processingPanel}>
           {isJobActive ? (
@@ -576,12 +594,6 @@ function CaptureCard({
           )}
         </View>
       )}
-      {showOriginal && (
-        <View style={styles.originalPanel}>
-          <Text style={styles.originalLabel}>Original capture</Text>
-          <Text style={styles.originalText}>{capture.originalText}</Text>
-        </View>
-      )}
     </View>
   );
 }
@@ -601,7 +613,6 @@ export default function InboxScreen() {
   const [searchText, setSearchText] = useState("");
   const [activeSearch, setActiveSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [menuVisible, setMenuVisible] = useState(false);
 
   const handleError = useCallback((requestError: unknown) => {
     if (requestError instanceof ApiError && requestError.status === 401) {
@@ -647,7 +658,6 @@ export default function InboxScreen() {
         }
         if (storedToken) {
           setSessionToken(storedToken);
-          await loadInbox(storedToken);
         }
       } catch (restoreError) {
         if (active) {
@@ -666,6 +676,13 @@ export default function InboxScreen() {
     };
   }, [handleError, loadInbox]);
 
+  useFocusEffect(
+    useCallback(() => {
+      if (!ready || !sessionToken) return;
+      void loadInbox(sessionToken, activeSearch).catch(handleError);
+    }, [activeSearch, handleError, loadInbox, ready, sessionToken]),
+  );
+
   async function handleSignIn() {
     setBusy(true);
     setError(null);
@@ -677,7 +694,6 @@ export default function InboxScreen() {
       const session = await exchangeGoogleIdToken(idToken);
       await SecureStore.setItemAsync(SESSION_KEY, session.token);
       setSessionToken(session.token);
-      await loadInbox(session.token);
     } catch (signInError) {
       const isGoogleDeveloperError =
         typeof signInError === "object" &&
@@ -691,41 +707,6 @@ export default function InboxScreen() {
       } else {
         handleError(signInError);
       }
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleSignOut() {
-    if (!sessionToken) {
-      return;
-    }
-
-    setBusy(true);
-    setError(null);
-    let revokeError: unknown;
-    try {
-      await revokeSession(sessionToken);
-    } catch (requestError) {
-      revokeError = requestError;
-    }
-
-    try {
-      await SecureStore.deleteItemAsync(SESSION_KEY);
-      setSessionToken(null);
-      setCaptures([]);
-      setPossibleDuplicates([]);
-      setSearchItems([]);
-      setSearchItemsCursor(null);
-      setNextCursor(null);
-      await clearGoogleSignIn();
-      if (revokeError) {
-        setError(
-          "Signed out on this device, but server sign-out could not be confirmed.",
-        );
-      }
-    } catch (signOutError) {
-      handleError(signOutError);
     } finally {
       setBusy(false);
     }
@@ -888,25 +869,9 @@ export default function InboxScreen() {
     }
   }
 
-  async function handleExport() {
-    if (!sessionToken) {
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      const exportedData = await exportCaptures(sessionToken);
-      await shareCaptureExport(exportedData);
-    } catch (exportError) {
-      handleError(exportError);
-    } finally {
-      setBusy(false);
-    }
-  }
-
   if (!ready) {
     return (
-      <SafeAreaView style={styles.screen}>
+      <SafeAreaView edges={["top", "left", "right"]} style={styles.screen}>
         <View style={styles.loadingPanel}>
           <Text style={styles.eyebrow}>BRAINDUMP</Text>
           <Text style={styles.loadingText}>Opening your private inbox...</Text>
@@ -917,7 +882,7 @@ export default function InboxScreen() {
 
   if (!sessionToken) {
     return (
-      <SafeAreaView style={styles.screen}>
+      <SafeAreaView edges={["top", "left", "right"]} style={styles.screen}>
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : undefined}
           style={styles.flex}
@@ -981,7 +946,7 @@ export default function InboxScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.screen}>
+    <SafeAreaView edges={["top", "left", "right"]} style={styles.screen}>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.flex}
@@ -995,66 +960,7 @@ export default function InboxScreen() {
             </View>
             <Text style={styles.brandName}>BrainDump</Text>
           </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Open menu"
-            disabled={busy}
-            onPress={() => setMenuVisible(true)}
-            style={styles.menuButton}
-          >
-            <Text style={styles.menuButtonText}>☰</Text>
-          </Pressable>
         </View>
-
-        <Modal
-          animationType="fade"
-          onRequestClose={() => setMenuVisible(false)}
-          transparent
-          visible={menuVisible}
-        >
-          <View accessibilityViewIsModal style={styles.menuOverlay}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Close menu"
-              onPress={() => setMenuVisible(false)}
-              style={styles.menuBackdrop}
-            />
-            <View style={styles.menuPanel}>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => {
-                  setMenuVisible(false);
-                  router.push("./items");
-                }}
-                style={styles.menuItem}
-              >
-                <Text style={styles.menuItemText}>Items</Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                disabled={busy}
-                onPress={() => {
-                  setMenuVisible(false);
-                  void handleExport();
-                }}
-                style={styles.menuItem}
-              >
-                <Text style={styles.menuItemText}>Export</Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                disabled={busy}
-                onPress={() => {
-                  setMenuVisible(false);
-                  void handleSignOut();
-                }}
-                style={styles.menuItem}
-              >
-                <Text style={styles.menuItemText}>Sign out</Text>
-              </Pressable>
-            </View>
-          </View>
-        </Modal>
 
         <ScrollView
           contentContainerStyle={styles.content}
@@ -1068,7 +974,7 @@ export default function InboxScreen() {
           </Text>
           <Pressable
             accessibilityRole="button"
-            onPress={() => router.push("./review")}
+                  onPress={() => router.push("/review")}
             style={styles.reviewNavButton}
           >
             <Text style={styles.reviewNavText}>Open daily review</Text>
@@ -1117,21 +1023,30 @@ export default function InboxScreen() {
                 </Pressable>
               </View>
             )}
-            <Pressable
-              accessibilityRole="button"
-              disabled={busy || captureText.trim().length === 0}
-              onPress={() => void handleCreateCapture()}
-              style={({ pressed }) => [
-                styles.primaryButton,
-                (busy || captureText.trim().length === 0) &&
-                  styles.disabledButton,
-                pressed && styles.pressedButton,
-              ]}
-            >
-              <Text style={styles.primaryButtonText}>
-                {busy ? "Working..." : "Save to inbox"}
-              </Text>
-            </Pressable>
+            <View style={styles.composerActions}>
+              <SpeechInputToggle
+                onTranscript={(transcript) =>
+                  setCaptureText((current) =>
+                    `${current.trimEnd()}${current.trim() ? " " : ""}${transcript}`,
+                  )
+                }
+              />
+              <Pressable
+                accessibilityRole="button"
+                disabled={busy || captureText.trim().length === 0}
+                onPress={() => void handleCreateCapture()}
+                style={({ pressed }) => [
+                  styles.primaryButton,
+                  (busy || captureText.trim().length === 0) &&
+                    styles.disabledButton,
+                  pressed && styles.pressedButton,
+                ]}
+              >
+                <Text style={styles.primaryButtonText}>
+                  {busy ? "Working..." : "Save to inbox"}
+                </Text>
+              </Pressable>
+            </View>
           </View>
 
           <View style={styles.searchSection}>
@@ -1202,16 +1117,19 @@ export default function InboxScreen() {
             </View>
           )}
 
-          <View style={styles.inboxHeader}>
-            <Text style={styles.sectionTitle}>
-              {activeSearch ? "Search results" : "Inbox"}
-            </Text>
-            <Text style={styles.countText}>
-              {activeSearch
-                ? `${captures.length} captures · ${searchItems.length} saved items`
-                : captures.length}
-            </Text>
-          </View>
+          {activeSearch ? (
+            <View style={styles.searchResultsHeader}>
+              <Text style={styles.sectionTitle}>Search Results</Text>
+              <Text style={styles.countText}>
+                {captures.length} captures · {searchItems.length} saved items
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.inboxHeader}>
+              <Text style={styles.sectionTitle}>Inbox</Text>
+              <Text style={styles.countText}>{captures.length}</Text>
+            </View>
+          )}
 
           {captures.length === 0 ? (
             <Text style={styles.emptyState}>
@@ -1249,7 +1167,7 @@ export default function InboxScreen() {
                   key={item.id}
                   onPress={() =>
                     router.push({
-                      pathname: "./items/[itemId]",
+                      pathname: "/items/[itemId]",
                       params: { itemId: item.id },
                     })
                   }
@@ -1429,41 +1347,6 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "700",
   },
-  menuButton: {
-    alignItems: "center",
-    height: 44,
-    justifyContent: "center",
-    width: 44,
-  },
-  menuButtonText: { color: "#344238", fontSize: 28, lineHeight: 32 },
-  menuOverlay: { flex: 1 },
-  menuBackdrop: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: "rgba(24, 35, 28, 0.28)",
-  },
-  menuPanel: {
-    backgroundColor: "#FFFFFF",
-    borderColor: "#E5E3DA",
-    borderRadius: 14,
-    borderWidth: 1,
-    elevation: 8,
-    minWidth: 210,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    position: "absolute",
-    right: 14,
-    shadowColor: "#18231C",
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.16,
-    shadowRadius: 14,
-    top: 56,
-  },
-  menuItem: {
-    justifyContent: "center",
-    minHeight: 48,
-    paddingHorizontal: 13,
-  },
-  menuItemText: { color: "#2F4636", fontSize: 16, fontWeight: "600" },
   content: {
     paddingHorizontal: 20,
     paddingTop: 28,
@@ -1593,6 +1476,20 @@ const styles = StyleSheet.create({
     marginTop: 30,
     marginBottom: 12,
   },
+  searchResultsHeader: {
+    alignItems: "flex-start",
+    flexDirection: "column",
+    marginBottom: 12,
+    marginTop: 30,
+  },
+  composerActions: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    justifyContent: "space-between",
+    marginTop: 8,
+  },
   sectionTitle: {
     color: "#24342A",
     fontFamily: Platform.select({ ios: "Georgia", android: "serif" }),
@@ -1621,6 +1518,26 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     padding: 15,
   },
+  captureCardHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 5,
+  },
+  deleteCaptureButton: {
+    alignItems: "center",
+    backgroundColor: "#FFF1EE",
+    borderRadius: 15,
+    height: 30,
+    justifyContent: "center",
+    width: 30,
+  },
+  deleteCaptureButtonText: {
+    color: "#A33D32",
+    fontSize: 25,
+    fontWeight: "400",
+    lineHeight: 29,
+  },
   searchItemCard: {
     backgroundColor: "#FFFFFF",
     borderColor: "#E5E3DA",
@@ -1634,13 +1551,33 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginBottom: 7,
   },
-  captureInput: {
+  captureEditModal: { backgroundColor: "#F6F4EE", flex: 1 },
+  captureEditSafeArea: { flex: 1, padding: 20 },
+  captureEditHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  captureEditTitle: { color: "#24342A", fontSize: 23, fontWeight: "700" },
+  captureEditInput: {
+    backgroundColor: "#FFFFFF",
+    borderColor: "#E5E3DA",
+    borderRadius: 14,
+    borderWidth: 1,
     color: "#28372D",
-    fontSize: 15,
-    lineHeight: 22,
-    maxHeight: 220,
-    minHeight: 72,
-    paddingVertical: 6,
+    flex: 1,
+    fontSize: 16,
+    lineHeight: 24,
+    marginTop: 16,
+    padding: 14,
+  },
+  captureEditSave: {
+    alignItems: "center",
+    backgroundColor: "#2F4636",
+    borderRadius: 11,
+    justifyContent: "center",
+    marginTop: 14,
+    minHeight: 52,
   },
   captureText: {
     color: "#28372D",

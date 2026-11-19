@@ -9,6 +9,15 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     "expo-router",
     ["expo-secure-store", { configureAndroidBackup: true }],
     "expo-sharing",
+    [
+      "expo-speech-recognition",
+      {
+        microphonePermission:
+          "BrainDump uses the microphone when you choose voice capture.",
+        speechRecognitionPermission:
+          "BrainDump uses speech recognition to turn your voice into capture text.",
+      },
+    ],
   ];
 
   if (iosUrlScheme) {

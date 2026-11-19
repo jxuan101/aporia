@@ -613,6 +613,40 @@ def test_accepting_edited_proposal_creates_one_user_owned_item(
     assert stored["item_title"] == "Return the library book"
     assert str(stored["capture_id"]) == capture["id"]
 
+    edited = client.patch(
+        f"/api/v1/captures/{capture['id']}",
+        headers=owner_headers,
+        json={"text": "Return the library book after practice."},
+    )
+    assert edited.status_code == 200
+    replacement_job = client.post(
+        f"/api/v1/captures/{capture['id']}/process", headers=owner_headers
+    ).json()["job"]
+    assert process_next_job(database_connection_factory, FixedProposalAdapter())
+    replacement_suggestion = client.get(
+        f"/api/v1/agent/jobs/{replacement_job['id']}", headers=owner_headers
+    ).json()["job"]["suggestion"]
+    replacement = client.post(
+        f"/api/v1/agent/suggestions/{replacement_suggestion['id']}/accept",
+        headers=owner_headers,
+        json={"proposal": replacement_suggestion["proposal"]},
+    )
+    assert replacement.status_code == 200
+    assert replacement.json()["suggestion"]["itemId"] == result["itemId"]
+    refreshed_old_job = client.get(
+        f"/api/v1/agent/jobs/{job_id}", headers=owner_headers
+    ).json()["job"]
+    assert refreshed_old_job["suggestion"]["itemId"] == result["itemId"]
+    with psycopg.connect(TEST_DATABASE_URL, row_factory=dict_row) as connection:
+        assert (
+            connection.execute(
+                "SELECT count(*) AS count FROM items "
+                "WHERE user_id = %s AND capture_id = %s",
+                (identities["user_a"], capture["id"]),
+            ).fetchone()["count"]
+            == 1
+        )
+
 
 def test_rejecting_suggestion_preserves_capture_and_creates_no_item(
     client: TestClient,
@@ -791,6 +825,91 @@ def test_items_are_listed_and_read_only_with_user_scoping(
         client.get(f"/api/v1/items/{item_id}", headers=other_headers).status_code == 404
     )
     assert client.get("/api/v1/items", headers=other_headers).json()["items"] == []
+
+
+def test_deleting_item_preserves_records_unless_requested_and_is_user_scoped(
+    client: TestClient,
+    identities: dict[str, str],
+) -> None:
+    owner_headers = {"Authorization": f"Bearer {identities['token_a']}"}
+    other_headers = {"Authorization": f"Bearer {identities['token_b']}"}
+
+    def create_item(text: str) -> tuple[str, str]:
+        capture = client.post(
+            "/api/v1/captures", headers=owner_headers, json={"text": text}
+        ).json()["capture"]
+        job = client.post(
+            f"/api/v1/captures/{capture['id']}/process", headers=owner_headers
+        ).json()["job"]
+        assert process_next_job(database_connection_factory, FixedProposalAdapter())
+        suggestion = client.get(
+            f"/api/v1/agent/jobs/{job['id']}", headers=owner_headers
+        ).json()["job"]["suggestion"]
+        accepted = client.post(
+            f"/api/v1/agent/suggestions/{suggestion['id']}/accept",
+            headers=owner_headers,
+            json={"proposal": suggestion["proposal"]},
+        )
+        return accepted.json()["suggestion"]["itemId"], capture["id"]
+
+    kept_item, kept_capture = create_item("Keep this capture after item removal.")
+    linked_item, linked_capture = create_item("Keep this linked item's capture too.")
+    assert (
+        client.post(
+            f"/api/v1/items/{kept_item}/related/{linked_item}", headers=owner_headers
+        ).status_code
+        == 201
+    )
+
+    forbidden = client.delete(f"/api/v1/items/{kept_item}", headers=other_headers)
+    assert forbidden.status_code == 404
+    removed = client.delete(f"/api/v1/items/{kept_item}", headers=owner_headers)
+    assert removed.status_code == 204
+    assert (
+        client.get(f"/api/v1/items/{linked_item}", headers=owner_headers).status_code
+        == 200
+    )
+
+    with psycopg.connect(TEST_DATABASE_URL, row_factory=dict_row) as connection:
+        assert (
+            connection.execute(
+                "SELECT count(*) AS count FROM captures WHERE id::text = ANY(%s)",
+                ([kept_capture, linked_capture],),
+            ).fetchone()["count"]
+            == 2
+        )
+
+    cascade_item, cascade_capture = create_item("Delete this source capture too.")
+    linked_cascade_item, linked_cascade_capture = create_item(
+        "Delete this linked source capture too."
+    )
+    assert (
+        client.post(
+            f"/api/v1/items/{cascade_item}/related/{linked_cascade_item}",
+            headers=owner_headers,
+        ).status_code
+        == 201
+    )
+    cascaded = client.delete(
+        f"/api/v1/items/{cascade_item}?delete_capture=true&delete_linked=true",
+        headers=owner_headers,
+    )
+    assert cascaded.status_code == 204
+    with psycopg.connect(TEST_DATABASE_URL, row_factory=dict_row) as connection:
+        assert (
+            connection.execute(
+                "SELECT count(*) AS count FROM captures WHERE id::text = ANY(%s)",
+                ([cascade_capture, linked_cascade_capture],),
+            ).fetchone()["count"]
+            == 0
+        )
+        assert (
+            connection.execute(
+                "SELECT count(*) AS count FROM items WHERE id::text = ANY(%s)",
+                ([cascade_item, linked_cascade_item],),
+            ).fetchone()["count"]
+            == 0
+        )
 
 
 def test_capture_full_text_search_stems_terms_and_stays_user_scoped(

@@ -307,6 +307,21 @@ export async function getItem(
   return itemDetailSchema.parse(response).item;
 }
 
+export async function deleteItem(
+  token: string,
+  itemId: string,
+  options: { deleteCapture: boolean; deleteLinked: boolean },
+): Promise<void> {
+  const query = new URLSearchParams();
+  if (options.deleteCapture) query.set("delete_capture", "true");
+  if (options.deleteLinked) query.set("delete_linked", "true");
+  const queryString = query.size ? `?${query.toString()}` : "";
+  await request(`/api/v1/items/${encodeURIComponent(itemId)}${queryString}`, {
+    token,
+    method: "DELETE",
+  });
+}
+
 export async function getRelatedItems(
   token: string,
   itemId: string,

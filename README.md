@@ -52,9 +52,11 @@ Configure Google OAuth clients in the same Google Cloud project:
 - Set `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` to the iOS OAuth client ID. The app derives its iOS URL scheme from this value.
 - Register the Android package `com.braindump.mobile` and the signing certificate SHA-1 fingerprints in Google Cloud. For local builds, obtain the debug fingerprint after generating the native project.
 
-Google sign-in uses native code, so Expo Go is not supported. Build and run a development app with `npm run ios` or `npm run android` from `mobile/`; these commands require the corresponding local platform toolchain. Start Metro separately with `npm start` in `mobile/` when needed.
+Google sign-in and speech recognition use native code, so Expo Go is not supported. Voice capture uses the device's speech-recognition service, requests microphone and speech permissions, and does not save an audio recording. Depending on device settings and platform services, speech recognition may use network services. Build and run a development app with `npm run ios` or `npm run android` from `mobile/`; these commands require the corresponding local platform toolchain. Start Metro separately with `npm start` in `mobile/` when needed.
 
 The API supports Google sign-in, user-scoped capture creation/edit/deletion, PostgreSQL full-text search across captures and saved-item metadata, paginated capture and item lists, item details, JSON export, explicit AI processing, and suggestion accept/edit/reject. Session tokens are random, revocable bearer tokens stored in iOS Keychain or Android Keystore through Expo SecureStore. Google ID tokens are verified by the backend and are not retained; Drive access is not requested. Editing keeps the original capture, and deleting remains permanent.
+
+The mobile app has Home, Inbox, Saved, and Profile tabs with a separate quick-capture button in the center. Horizontal swipes switch between those four tabs and stop at the first and last tab. Export and sign-out are available from Profile.
 
 Capture creation returns possible duplicate captures after the new capture is saved. The warning compares against up to 500 recent captures owned by the same user, requires at least five meaningful words for approximate matches, and reports up to three matches with 80% term overlap. Exact normalized matches can be warned on even when short. The warning never blocks, merges, or deletes a capture.
 
@@ -66,7 +68,7 @@ The mobile daily review screen reads `GET /api/v1/review/daily`, which paginates
 
 Review decisions use `POST /api/v1/agent/suggestions/{suggestion_id}/accept` with `{"proposal": ...}` or `POST /api/v1/agent/suggestions/{suggestion_id}/reject`. Acceptance revalidates the full versioned schema and task evidence against the current capture. Model-proposed related IDs are cleared; links require a separate user action.
 
-Accepted items are available from `GET /api/v1/items` and `GET /api/v1/items/{item_id}`. Both routes scope results to the authenticated user. The mobile app includes a paginated saved-items list and a read-only detail view with the original capture for context.
+Accepted items are available from `GET /api/v1/items` and `GET /api/v1/items/{item_id}`. Both routes scope results to the authenticated user. The mobile app includes a paginated saved-items list and a read-only detail view with the original capture for context. Deleting a saved item keeps its capture by default; the user can separately confirm deleting that capture and directly linked items with their captures. Accepting a new proposal for an edited capture updates its existing saved item rather than creating a duplicate.
 
 Capture search uses `GET /api/v1/captures?q=...`; saved-item search uses `GET /api/v1/items?q=...`. Queries use PostgreSQL's English full-text dictionary with web-style phrase and OR syntax. Both search paths retain user scoping and cursor pagination. The mobile search screen shows capture matches and saved-item matches, which open their capture card or item detail respectively.
 

@@ -144,6 +144,72 @@ def read_item(
     return {"item": item}
 
 
+@router.delete("/{item_id}", status_code=204)
+def delete_item(
+    item_id: str,
+    connection: Annotated[Connection, Depends(get_connection)],
+    user_id: Annotated[str | None, Depends(current_user_id)],
+    delete_capture: bool = Query(default=False),
+    delete_linked: bool = Query(default=False),
+) -> None:
+    """Delete one item, with separately confirmed source and linked records."""
+    if not user_id:
+        raise ApiError("Authentication required.", 401)
+    try:
+        parsed_id = UUID(item_id)
+    except ValueError:
+        raise ApiError("The requested item is unavailable.", 404) from None
+
+    item = connection.execute(
+        """
+        SELECT i.capture_id FROM items i
+        JOIN captures c ON c.id = i.capture_id AND c.user_id = i.user_id
+        WHERE i.id = %s AND i.user_id = %s
+        FOR UPDATE OF i, c
+        """,
+        (parsed_id, user_id),
+    ).fetchone()
+    if item is None:
+        raise ApiError("The requested item is unavailable.", 404)
+
+    linked_rows = connection.execute(
+        """
+        SELECT i.id, i.capture_id
+        FROM item_relationships r
+        JOIN items i ON i.user_id = r.user_id
+            AND i.id = CASE
+                WHEN r.item_low = %s THEN r.item_high
+                ELSE r.item_low
+            END
+        WHERE r.user_id = %s AND (r.item_low = %s OR r.item_high = %s)
+        FOR UPDATE OF i
+        """,
+        (parsed_id, user_id, parsed_id, parsed_id),
+    ).fetchall()
+    linked_item_ids = [row["id"] for row in linked_rows]
+
+    connection.execute(
+        "DELETE FROM items WHERE id = %s AND user_id = %s",
+        (parsed_id, user_id),
+    )
+
+    capture_ids: list[UUID] = []
+    if delete_capture:
+        capture_ids.append(item["capture_id"])
+    if delete_linked:
+        if linked_item_ids:
+            connection.execute(
+                "DELETE FROM items WHERE user_id = %s AND id = ANY(%s)",
+                (user_id, linked_item_ids),
+            )
+        capture_ids.extend(row["capture_id"] for row in linked_rows)
+    if capture_ids:
+        connection.execute(
+            "DELETE FROM captures WHERE user_id = %s AND id = ANY(%s)",
+            (user_id, capture_ids),
+        )
+
+
 @router.get("/{item_id}/related")
 def read_related_items(
     item_id: str,

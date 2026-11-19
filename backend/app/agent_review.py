@@ -79,8 +79,13 @@ def accept_suggestion(
         if comparison_data != row["accepted_payload_json"]:
             raise ReviewConflictError("This suggestion was accepted with other edits.")
         item = connection.execute(
-            "SELECT id FROM items WHERE user_id = %s AND suggestion_id = %s",
-            (user_id, suggestion_id),
+            """
+            SELECT id FROM items
+            WHERE user_id = %s AND capture_id = %s
+            ORDER BY updated_at DESC, created_at DESC
+            LIMIT 1
+            """,
+            (user_id, row["capture_id"]),
         ).fetchone()
         return _review_result(
             connection,
@@ -121,25 +126,82 @@ def accept_suggestion(
         proposal = proposal.model_copy(update={"related_item_ids": []})
 
     accepted_payload = proposal.model_dump(mode="json")
-    item = connection.execute(
+    existing_items = connection.execute(
         """
-        INSERT INTO items (
-            user_id, capture_id, suggestion_id, item_type, title, summary,
-            labels_json, candidate_tasks_json
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        RETURNING id
+        SELECT id FROM items
+        WHERE user_id = %s AND capture_id = %s
+        ORDER BY updated_at DESC, created_at DESC
+        FOR UPDATE
         """,
-        (
-            user_id,
-            row["capture_id"],
-            suggestion_id,
-            proposal.item_type,
-            proposal.title,
-            proposal.summary,
-            Jsonb(proposal.labels),
-            Jsonb([task.model_dump(mode="json") for task in proposal.candidate_tasks]),
-        ),
-    ).fetchone()
+        (user_id, row["capture_id"]),
+    ).fetchall()
+    existing_item = existing_items[0] if existing_items else None
+    item_values = (
+        suggestion_id,
+        proposal.item_type,
+        proposal.title,
+        proposal.summary,
+        Jsonb(proposal.labels),
+        Jsonb([task.model_dump(mode="json") for task in proposal.candidate_tasks]),
+    )
+    if existing_item:
+        item = connection.execute(
+            """
+            UPDATE items
+            SET suggestion_id = %s, item_type = %s, title = %s, summary = %s,
+                labels_json = %s, candidate_tasks_json = %s, updated_at = now()
+            WHERE user_id = %s AND id = %s
+            RETURNING id
+            """,
+            (*item_values, user_id, existing_item["id"]),
+        ).fetchone()
+        duplicate_ids = [entry["id"] for entry in existing_items[1:]]
+        if duplicate_ids:
+            same_capture_ids = [entry["id"] for entry in existing_items]
+            linked_neighbors = connection.execute(
+                """
+                SELECT CASE
+                    WHEN item_low = ANY(%s) THEN item_high
+                    ELSE item_low
+                END AS related_id
+                FROM item_relationships
+                WHERE user_id = %s
+                    AND (item_low = ANY(%s) OR item_high = ANY(%s))
+                """,
+                (same_capture_ids, user_id, same_capture_ids, same_capture_ids),
+            ).fetchall()
+            for neighbor in linked_neighbors:
+                related_id = neighbor["related_id"]
+                if related_id in same_capture_ids:
+                    continue
+                item_low, item_high = sorted((existing_item["id"], related_id))
+                connection.execute(
+                    """
+                    INSERT INTO item_relationships (user_id, item_low, item_high)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (user_id, item_low, item_high) DO NOTHING
+                    """,
+                    (user_id, item_low, item_high),
+                )
+            connection.execute(
+                "DELETE FROM items WHERE user_id = %s AND id = ANY(%s)",
+                (user_id, duplicate_ids),
+            )
+    else:
+        item = connection.execute(
+            """
+            INSERT INTO items (
+                user_id, capture_id, suggestion_id, item_type, title, summary,
+                labels_json, candidate_tasks_json
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+            """,
+            (
+                user_id,
+                row["capture_id"],
+                *item_values,
+            ),
+        ).fetchone()
     connection.execute(
         """
         UPDATE agent_suggestions

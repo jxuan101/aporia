@@ -11,8 +11,8 @@ import * as SecureStore from "expo-secure-store";
 import { router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { ApiError, type BrainDumpItem, listItems } from "../lib/api";
-import { SESSION_KEY } from "../lib/session";
+import { ApiError, type BrainDumpItem, listItems } from "../../lib/api";
+import { SESSION_KEY } from "../../lib/session";
 
 export default function ItemsScreen() {
   const [items, setItems] = useState<BrainDumpItem[]>([]);
@@ -100,7 +100,7 @@ export default function ItemsScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.screen}>
+    <SafeAreaView edges={["top", "left", "right"]} style={styles.screen}>
       <View style={styles.header}>
         <Pressable
           accessibilityRole="button"

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  Alert,
   ActivityIndicator,
   Pressable,
   ScrollView,
@@ -13,6 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import {
   addRelatedItem,
+  deleteItem,
   getItem,
   getRelatedItems,
   type BrainDumpItemDetail,
@@ -118,6 +120,76 @@ export default function ItemDetailScreen() {
     } finally {
       setUpdatingLink(false);
     }
+  }
+
+  async function removeSavedItem(deleteCapture: boolean, deleteLinked: boolean) {
+    if (!token) return;
+    setUpdatingLink(true);
+    setError(null);
+    try {
+      await deleteItem(token, itemId, { deleteCapture, deleteLinked });
+      router.replace("/items");
+    } catch (deleteError) {
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : "The saved item could not be deleted.",
+      );
+    } finally {
+      setUpdatingLink(false);
+    }
+  }
+
+  function confirmLinkedDeletion(deleteCapture: boolean) {
+    if (related?.relatedItems.length) {
+      Alert.alert(
+        "Delete linked saved items too?",
+        "This also deletes the captures that created those linked items. Other captures stay in your inbox.",
+        [
+          {
+            text: "Keep linked items",
+            onPress: () => void removeSavedItem(deleteCapture, false),
+          },
+          {
+            text: "Delete linked items and captures",
+            style: "destructive",
+            onPress: () => void removeSavedItem(deleteCapture, true),
+          },
+        ],
+      );
+    } else {
+      void removeSavedItem(deleteCapture, false);
+    }
+  }
+
+  function confirmDelete() {
+    Alert.alert(
+      "Delete saved item?",
+      "The saved item will be removed. Your capture stays unless you choose to delete it next.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Continue",
+          style: "destructive",
+          onPress: () =>
+            Alert.alert(
+              "Delete its original capture too?",
+              "Deleting the capture also removes its processing history.",
+              [
+                {
+                  text: "Keep capture",
+                  onPress: () => confirmLinkedDeletion(false),
+                },
+                {
+                  text: "Delete capture",
+                  style: "destructive",
+                  onPress: () => confirmLinkedDeletion(true),
+                },
+              ],
+            ),
+        },
+      ],
+    );
   }
 
   return (
@@ -250,6 +322,16 @@ export default function ItemDetailScreen() {
               </View>
             ) : null}
           </View>
+          <Pressable
+            accessibilityRole="button"
+            disabled={updatingLink}
+            onPress={confirmDelete}
+            style={styles.deleteItemButton}
+          >
+            <Text style={styles.deleteItemText}>
+              {updatingLink ? "Deleting…" : "Delete saved item"}
+            </Text>
+          </Pressable>
         </ScrollView>
       )}
     </SafeAreaView>
@@ -280,6 +362,8 @@ const styles = StyleSheet.create({
   source: { color: "#68746B", fontSize: 12, lineHeight: 18, marginTop: 8 },
   original: { backgroundColor: "#FFFFFF", borderRadius: 12, color: "#435147", fontSize: 14, lineHeight: 22, padding: 14 },
   currentCapture: { marginTop: 14 },
+  deleteItemButton: { alignItems: "center", borderColor: "#EBC8C1", borderRadius: 11, borderWidth: 1, justifyContent: "center", marginTop: 18, minHeight: 48 },
+  deleteItemText: { color: "#A33D32", fontSize: 14, fontWeight: "700" },
   relatedCard: { backgroundColor: "#FFFFFF", borderRadius: 12, marginTop: 8, padding: 13 },
   suggestions: { marginTop: 18 },
   matchTerms: { color: "#68746B", fontSize: 12, marginTop: 8 },

@@ -8,7 +8,17 @@ Things to fix:
 - [x] Clicking a task in the items page leads to an unmatched route page.
 - [x] The items in the inbox should not be editable by default.
 - [x] Are the AI suggestions suppose to be so simple? For example, when I put "I need to learn to sing", the suggestion is basically "Learn to sing."
-- [ ] Editing a capture should either push up the viewport with the keyboard and the capture text is in focus OR make a popup modal appear.
-- [ ] Delete should just be a red 'X' button on the top right of the capture container.
-- [ ] "Search results" should be "Search Results" and the count of captures and saved items should be below the "Search Results" text so it fits within the viewport.
-
+- [x] Editing a capture should either push up the viewport with the keyboard and the capture text is in focus OR make a popup modal appear.
+- [x] Delete should just be a red 'X' button on the top right of the capture container.
+- [x] "Search results" should be "Search Results" and the count of captures and saved items should be below the "Search Results" text so it fits within the viewport.
+- [x] Speech to text button for captures next to save to inbox button. The button should be a toggle, not a hold down.
+- [x] Saved items should be deletable, additionally ask if they want to delete associated captures. Then ask if they want to delete linked saved items and captures as well.
+- [x] Refresh proposal should be replaced with a button that when clicked, goes to the appropriate saved item page.
+- [x] After an edit, the original capture when displayed, should be aboved the AI suggestion box.
+- [x] Captures should map to only one saved item, meaning that if the user edits a capture and processes it with AI and accepts, the old saved item should be replaced by the new.
+- [x] There should be a tab bar on the bottom has has [Home, Inbox, A bigger mic button for quick capturing, Saved, Profile]. The screens when swiped left or right will move to the previous or next tab and should not wrap around if at the edges of the tabs. Also disregard the mic button when swiping because it's not a real tab. The sandwich bar on the header is no longer needed, move export and logout to the profile tab.
+- [ ] Swiping between tabs should have a corresponding seamless transition where the page slides in left to right or right to left. Same goes for transitions between other pages.
+- [ ] The inbox tab does not need to have a capture box.
+- [ ] The saved items tab does not need a redirect to inbox in the header.
+- [ ] When attempting to use Voice Input, prompt the user's device to allow microphone permissions on their device for the app.
+- [ ] Voice input button should just be a microphone button.
