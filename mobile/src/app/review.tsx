@@ -324,7 +324,6 @@ export default function DailyReviewScreen() {
         >
           <Text style={styles.backText}>‹ Inbox</Text>
         </Pressable>
-        <Text style={styles.brand}>BrainDump</Text>
       </View>
       <FlatList
         contentContainerStyle={styles.content}
@@ -407,7 +406,6 @@ const styles = StyleSheet.create({
   },
   backButton: { justifyContent: "center", minHeight: 44 },
   backText: { color: "#53685A", fontSize: 15, fontWeight: "700" },
-  brand: { color: "#24342A", fontFamily: "Georgia", fontSize: 19, fontWeight: "700" },
   content: { padding: 20, paddingBottom: 40, flexGrow: 1 },
   titleBlock: { marginBottom: 18 },
   eyebrow: { color: "#68746B", fontSize: 11, fontWeight: "700", letterSpacing: 1.5 },

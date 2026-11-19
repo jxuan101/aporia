@@ -1,11 +1,11 @@
 """Provider-neutral model interface and Groq chat-completion adapter."""
 
 import json
+import re
 from dataclasses import dataclass
-from http.client import HTTPException
 from typing import Protocol
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+
+from groq import APIConnectionError, APIStatusError, APITimeoutError, Groq
 
 from app.agent_prompts import (
     CAPTURE_PROCESSING_PROMPT_VERSION,
@@ -18,21 +18,71 @@ from app.agent_schema import (
     validate_proposal_json,
 )
 
-GROQ_CHAT_COMPLETIONS_URL = "https://api.groq.com/openai/v1/chat/completions"
 REQUEST_TIMEOUT_SECONDS = 30
-MAX_PROVIDER_RESPONSE_BYTES = 128_000
 MAX_COMPLETION_TOKENS = 3_000
+SAFE_PROVIDER_LABEL = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
+
+
+def _safe_provider_label(value: object) -> str | None:
+    if isinstance(value, str) and SAFE_PROVIDER_LABEL.fullmatch(value):
+        return value
+    return None
+
+
+def _provider_error_fields(body: object) -> tuple[str | None, str | None]:
+    if not isinstance(body, dict):
+        return None, None
+    provider_error = body.get("error")
+    if not isinstance(provider_error, dict):
+        return None, None
+    return (
+        _safe_provider_label(provider_error.get("type")),
+        _safe_provider_label(provider_error.get("code")),
+    )
+
+
+def _provider_status_reason(status_code: int) -> str:
+    if status_code == 400 or status_code == 422:
+        return "invalid_request"
+    if status_code == 401:
+        return "authentication_failed"
+    if status_code == 403:
+        return "permission_denied"
+    if status_code == 404:
+        return "model_or_endpoint_not_found"
+    if status_code == 413:
+        return "request_too_large"
+    if status_code == 429:
+        return "rate_limited"
+    if status_code >= 500:
+        return "provider_server_error"
+    return "provider_http_error"
 
 
 class ModelAdapterError(Exception):
-    """Safe, non-sensitive model invocation failure."""
+    """Safe model invocation failure with non-sensitive provider diagnostics."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        provider_status_code: int | None = None,
+        provider_reason: str | None = None,
+        provider_error_type: str | None = None,
+        provider_error_code: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.provider_status_code = provider_status_code
+        self.provider_reason = provider_reason
+        self.provider_error_type = provider_error_type
+        self.provider_error_code = provider_error_code
 
 
 class ModelTemporarilyUnavailable(ModelAdapterError):
     """A transient provider or network error that can be retried."""
 
 
-class ModelOutputError(ModelAdapterError):
+class ModelOutputError(Exception):
     """Provider output was missing, oversized, or failed schema validation."""
 
 
@@ -49,66 +99,56 @@ class ModelAdapter(Protocol):
 
 
 class GroqChatAdapter:
-    """Use Groq's OpenAI-compatible Chat Completions HTTP endpoint."""
+    """Use the official Groq Python SDK for chat completions."""
 
     def __init__(self, *, api_key: str, model: str) -> None:
         if not api_key.strip():
             raise ValueError("A Groq API key is required.")
         if not model.strip():
             raise ValueError("A Groq model identifier is required.")
-        self._api_key = api_key.strip()
         self._model = model.strip()
+        self._client = Groq(
+            api_key=api_key.strip(),
+            timeout=REQUEST_TIMEOUT_SECONDS,
+            max_retries=0,
+        )
 
     def propose_capture(self, capture_text: str) -> ModelProposalResult:
         messages = build_capture_processing_messages(capture_text)
-        request_body = json.dumps(
-            {
-                "model": self._model,
-                "messages": messages,
-                "response_format": {"type": "json_object"},
-                "max_completion_tokens": MAX_COMPLETION_TOKENS,
-                "temperature": 0.2,
-            }
-        ).encode("utf-8")
-        request = Request(
-            GROQ_CHAT_COMPLETIONS_URL,
-            data=request_body,
-            headers={
-                "Authorization": f"Bearer {self._api_key}",
-                "Content-Type": "application/json",
-            },
-            method="POST",
-        )
-
         try:
-            with urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-                response_body = response.read(MAX_PROVIDER_RESPONSE_BYTES + 1)
-        except HTTPError as error:
-            if error.code in {408, 409, 425, 429} or error.code >= 500:
+            response = self._client.chat.completions.create(
+                model=self._model,
+                messages=messages,
+                response_format={"type": "json_object"},
+                max_completion_tokens=MAX_COMPLETION_TOKENS,
+                temperature=0.2,
+            )
+        except APIStatusError as error:
+            error_type, error_code = _provider_error_fields(error.body)
+            diagnostics = {
+                "provider_status_code": error.status_code,
+                "provider_reason": _provider_status_reason(error.status_code),
+                "provider_error_type": error_type,
+                "provider_error_code": error_code,
+            }
+            if error.status_code in {408, 409, 425, 429} or error.status_code >= 500:
                 raise ModelTemporarilyUnavailable(
-                    "Groq is temporarily unavailable."
+                    "Groq is temporarily unavailable.", **diagnostics
                 ) from None
-            raise ModelAdapterError("Groq rejected the processing request.") from None
-        except (URLError, TimeoutError, HTTPException, OSError):
+            raise ModelAdapterError(
+                "Groq rejected the processing request.", **diagnostics
+            ) from None
+        except (APIConnectionError, APITimeoutError):
             raise ModelTemporarilyUnavailable(
-                "The model service could not be reached."
+                "The model service could not be reached.",
+                provider_error_code="connection_error",
             ) from None
 
-        if len(response_body) > MAX_PROVIDER_RESPONSE_BYTES:
-            raise ModelOutputError("The model response exceeds the allowed size.")
-
         try:
-            provider_payload = json.loads(response_body)
-            choice = provider_payload["choices"][0]
-            content = choice["message"]["content"]
-            finish_reason = choice.get("finish_reason")
-        except (
-            json.JSONDecodeError,
-            UnicodeDecodeError,
-            KeyError,
-            IndexError,
-            TypeError,
-        ):
+            choice = response.choices[0]
+            content = choice.message.content
+            finish_reason = choice.finish_reason
+        except (AttributeError, IndexError, TypeError):
             raise ModelOutputError("Groq returned an invalid response.") from None
 
         if not isinstance(content, str) or not content:
@@ -123,12 +163,12 @@ class GroqChatAdapter:
                 content,
                 original_capture=capture_text,
             )
-        except (ValidationError, ValueError):
+        except (json.JSONDecodeError, ValidationError, ValueError):
             raise ModelOutputError(
                 "The model returned a proposal that failed validation."
             ) from None
 
-        returned_model = provider_payload.get("model")
+        returned_model = response.model
         model_identifier = (
             returned_model[:200]
             if isinstance(returned_model, str) and returned_model

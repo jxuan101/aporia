@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
@@ -5,6 +7,7 @@ API_HEADERS = {
     "Cache-Control": "private, no-store",
     "X-Content-Type-Options": "nosniff",
 }
+logger = logging.getLogger("braindump.api")
 
 
 class ApiError(Exception):
@@ -21,7 +24,16 @@ class ApiError(Exception):
         self.code = code
 
 
-async def api_error_handler(_: Request, error: ApiError) -> JSONResponse:
+async def api_error_handler(request: Request, error: ApiError) -> JSONResponse:
+    route = request.scope.get("route")
+    route_template = getattr(route, "path", "unknown")
+    logger.warning(
+        "api_request_rejected method=%s route=%s status_code=%d error_code=%s",
+        request.method,
+        route_template,
+        error.status_code,
+        error.code or "none",
+    )
     body: dict[str, str] = {"error": error.message}
     if error.code is not None:
         body["code"] = error.code

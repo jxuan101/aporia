@@ -3,6 +3,7 @@ import {
   Alert,
   Keyboard,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -44,6 +45,10 @@ import {
 import { shareCaptureExport } from "../lib/export";
 import { SESSION_KEY } from "../lib/session";
 
+const JOB_STATUS_POLL_INITIAL_DELAY_MS = 2_000;
+const JOB_STATUS_POLL_MAX_DELAY_MS = 10_000;
+const JOB_STATUS_POLL_MAX_DURATION_MS = 2 * 60 * 1_000;
+
 type CaptureCardProps = {
   capture: Capture;
   onSave: (id: string, text: string) => Promise<void>;
@@ -83,7 +88,15 @@ function CaptureCard({
   onAcceptSuggestion,
   onRejectSuggestion,
 }: CaptureCardProps) {
-  const [draft, setDraft] = useState(capture.currentText);
+  const [draftState, setDraftState] = useState({
+    sourceText: capture.currentText,
+    text: capture.currentText,
+  });
+  const draft =
+    draftState.sourceText === capture.currentText
+      ? draftState.text
+      : capture.currentText;
+  const [isEditingCapture, setIsEditingCapture] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -103,6 +116,19 @@ function CaptureCard({
 
     let active = true;
     let timeout: ReturnType<typeof setTimeout> | undefined;
+    const startedAt = Date.now();
+    let nextDelay = JOB_STATUS_POLL_INITIAL_DELAY_MS;
+    function schedulePoll() {
+      if (Date.now() - startedAt >= JOB_STATUS_POLL_MAX_DURATION_MS) {
+        setPollingPaused(true);
+        setError(
+          "Processing is taking longer than expected. Automatic status checks are paused; check again later.",
+        );
+        return;
+      }
+      timeout = setTimeout(() => void poll(), nextDelay);
+      nextDelay = Math.min(nextDelay * 2, JOB_STATUS_POLL_MAX_DELAY_MS);
+    }
     const poll = async () => {
       try {
         const refreshed = await onRefreshProcessing(job.id);
@@ -111,7 +137,7 @@ function CaptureCard({
         }
         setJob(refreshed);
         if (refreshed.status === "queued" || refreshed.status === "running") {
-          timeout = setTimeout(() => void poll(), 1_500);
+          schedulePoll();
         }
       } catch (pollError) {
         if (active) {
@@ -125,7 +151,7 @@ function CaptureCard({
       }
     };
 
-    timeout = setTimeout(() => void poll(), 1_500);
+    timeout = setTimeout(() => void poll(), JOB_STATUS_POLL_INITIAL_DELAY_MS);
     return () => {
       active = false;
       if (timeout) {
@@ -241,6 +267,7 @@ function CaptureCard({
     setError(null);
     try {
       await onSave(capture.id, draft);
+      setIsEditingCapture(false);
       Keyboard.dismiss();
     } catch (saveError) {
       setError(
@@ -285,36 +312,74 @@ function CaptureCard({
       <Text style={styles.captureDate}>
         {new Date(capture.createdAt).toLocaleString()}
       </Text>
-      <TextInput
-        accessibilityLabel="Edit capture"
-        editable={!busy}
-        multiline
-        onChangeText={setDraft}
-        placeholder="Write your thought"
-        style={styles.captureInput}
-        value={draft}
-      />
+      {isEditingCapture ? (
+        <TextInput
+          accessibilityLabel="Edit capture"
+          autoFocus
+          editable={!busy}
+          multiline
+          onChangeText={(text) =>
+            setDraftState({ sourceText: capture.currentText, text })
+          }
+          placeholder="Write your thought"
+          style={styles.captureInput}
+          textAlignVertical="top"
+          value={draft}
+        />
+      ) : (
+        <Text accessibilityLabel="Capture text" style={styles.captureText}>
+          {capture.currentText}
+        </Text>
+      )}
       {error && (
         <Text accessibilityRole="alert" style={styles.errorText}>
           {error}
         </Text>
       )}
       <View style={styles.cardActions}>
-        <Pressable
-          accessibilityRole="button"
-          disabled={busy || draft === capture.currentText}
-          onPress={() => void save()}
-          style={({ pressed }) => [
-            styles.smallButton,
-            styles.secondaryButton,
-            (busy || draft === capture.currentText) && styles.disabledButton,
-            pressed && styles.pressedButton,
-          ]}
-        >
-          <Text style={styles.secondaryButtonText}>
-            {busy ? "Saving..." : "Save edit"}
-          </Text>
-        </Pressable>
+        {isEditingCapture ? (
+          <>
+            <Pressable
+              accessibilityRole="button"
+              disabled={busy || draft === capture.currentText}
+              onPress={() => void save()}
+              style={({ pressed }) => [
+                styles.smallButton,
+                styles.secondaryButton,
+                (busy || draft === capture.currentText) && styles.disabledButton,
+                pressed && styles.pressedButton,
+              ]}
+            >
+              <Text style={styles.secondaryButtonText}>
+                {busy ? "Saving..." : "Save edit"}
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              disabled={busy}
+              onPress={() => {
+                setDraftState({
+                  sourceText: capture.currentText,
+                  text: capture.currentText,
+                });
+                setIsEditingCapture(false);
+                Keyboard.dismiss();
+              }}
+              style={styles.linkButton}
+            >
+              <Text style={styles.linkText}>Cancel edit</Text>
+            </Pressable>
+          </>
+        ) : (
+          <Pressable
+            accessibilityRole="button"
+            disabled={busy}
+            onPress={() => setIsEditingCapture(true)}
+            style={styles.linkButton}
+          >
+            <Text style={styles.linkText}>Edit capture</Text>
+          </Pressable>
+        )}
         {capture.originalText !== capture.currentText && (
           <Pressable
             accessibilityRole="button"
@@ -536,6 +601,7 @@ export default function InboxScreen() {
   const [searchText, setSearchText] = useState("");
   const [activeSearch, setActiveSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [menuVisible, setMenuVisible] = useState(false);
 
   const handleError = useCallback((requestError: unknown) => {
     if (requestError instanceof ApiError && requestError.status === 401) {
@@ -917,7 +983,7 @@ export default function InboxScreen() {
   return (
     <SafeAreaView style={styles.screen}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.flex}
       >
         <View style={styles.header}>
@@ -929,36 +995,70 @@ export default function InboxScreen() {
             </View>
             <Text style={styles.brandName}>BrainDump</Text>
           </View>
-          <View style={styles.headerActions}>
-            <Pressable
-              accessibilityRole="button"
-              disabled={busy}
-              onPress={() => router.push("./items")}
-              style={styles.linkButton}
-            >
-              <Text style={styles.linkText}>Items</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              disabled={busy}
-              onPress={() => void handleExport()}
-              style={styles.linkButton}
-            >
-              <Text style={styles.linkText}>Export</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              disabled={busy}
-              onPress={() => void handleSignOut()}
-              style={styles.linkButton}
-            >
-              <Text style={styles.linkText}>Sign out</Text>
-            </Pressable>
-          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open menu"
+            disabled={busy}
+            onPress={() => setMenuVisible(true)}
+            style={styles.menuButton}
+          >
+            <Text style={styles.menuButtonText}>☰</Text>
+          </Pressable>
         </View>
+
+        <Modal
+          animationType="fade"
+          onRequestClose={() => setMenuVisible(false)}
+          transparent
+          visible={menuVisible}
+        >
+          <View accessibilityViewIsModal style={styles.menuOverlay}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close menu"
+              onPress={() => setMenuVisible(false)}
+              style={styles.menuBackdrop}
+            />
+            <View style={styles.menuPanel}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  setMenuVisible(false);
+                  router.push("./items");
+                }}
+                style={styles.menuItem}
+              >
+                <Text style={styles.menuItemText}>Items</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                disabled={busy}
+                onPress={() => {
+                  setMenuVisible(false);
+                  void handleExport();
+                }}
+                style={styles.menuItem}
+              >
+                <Text style={styles.menuItemText}>Export</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                disabled={busy}
+                onPress={() => {
+                  setMenuVisible(false);
+                  void handleSignOut();
+                }}
+                style={styles.menuItem}
+              >
+                <Text style={styles.menuItemText}>Sign out</Text>
+              </Pressable>
+            </View>
+          </View>
+        </Modal>
 
         <ScrollView
           contentContainerStyle={styles.content}
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
           keyboardShouldPersistTaps="handled"
         >
           <Text style={styles.eyebrow}>YOUR PRIVATE INBOX</Text>
@@ -1329,11 +1429,41 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "700",
   },
-  headerActions: {
+  menuButton: {
     alignItems: "center",
-    flexDirection: "row",
-    gap: 8,
+    height: 44,
+    justifyContent: "center",
+    width: 44,
   },
+  menuButtonText: { color: "#344238", fontSize: 28, lineHeight: 32 },
+  menuOverlay: { flex: 1 },
+  menuBackdrop: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: "rgba(24, 35, 28, 0.28)",
+  },
+  menuPanel: {
+    backgroundColor: "#FFFFFF",
+    borderColor: "#E5E3DA",
+    borderRadius: 14,
+    borderWidth: 1,
+    elevation: 8,
+    minWidth: 210,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    position: "absolute",
+    right: 14,
+    shadowColor: "#18231C",
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.16,
+    shadowRadius: 14,
+    top: 56,
+  },
+  menuItem: {
+    justifyContent: "center",
+    minHeight: 48,
+    paddingHorizontal: 13,
+  },
+  menuItemText: { color: "#2F4636", fontSize: 16, fontWeight: "600" },
   content: {
     paddingHorizontal: 20,
     paddingTop: 28,
@@ -1508,8 +1638,16 @@ const styles = StyleSheet.create({
     color: "#28372D",
     fontSize: 15,
     lineHeight: 22,
-    minHeight: 50,
-    padding: 0,
+    maxHeight: 220,
+    minHeight: 72,
+    paddingVertical: 6,
+  },
+  captureText: {
+    color: "#28372D",
+    fontSize: 15,
+    lineHeight: 22,
+    minHeight: 44,
+    paddingVertical: 6,
   },
   originalPanel: {
     backgroundColor: "#F6F4EE",

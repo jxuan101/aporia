@@ -1,5 +1,6 @@
 """PostgreSQL-backed, revision-scoped capture processing jobs."""
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
@@ -21,6 +22,7 @@ MAX_ATTEMPTS = 3
 MAX_DAILY_PROCESSING_REQUESTS_PER_USER = 20
 LEASE_SECONDS = 120
 POLL_INTERVAL_SECONDS = 1
+logger = logging.getLogger("braindump.agent_jobs")
 
 
 class ProcessingUsageLimitError(Exception):
@@ -294,9 +296,15 @@ def process_next_job(
     if job is None:
         return False
 
+    logger.info(
+        "agent_job_started job_id=%s attempt=%d",
+        job.id,
+        job.attempt_count,
+    )
+
     try:
         result = adapter.propose_capture(job.source_text)
-    except ModelTemporarilyUnavailable:
+    except ModelTemporarilyUnavailable as error:
         with connection_factory() as connection:
             _record_failure(
                 connection,
@@ -304,6 +312,18 @@ def process_next_job(
                 error_code="provider_unavailable",
                 retryable=True,
             )
+        logger.warning(
+            "agent_job_provider_unavailable job_id=%s attempt=%d will_retry=%s "
+            "provider_status_code=%s provider_reason=%s provider_error_type=%s "
+            "provider_error_code=%s",
+            job.id,
+            job.attempt_count,
+            job.attempt_count < MAX_ATTEMPTS,
+            error.provider_status_code,
+            error.provider_reason,
+            error.provider_error_type,
+            error.provider_error_code,
+        )
         return True
     except ModelOutputError:
         with connection_factory() as connection:
@@ -313,8 +333,13 @@ def process_next_job(
                 error_code="invalid_output",
                 retryable=False,
             )
+        logger.warning(
+            "agent_job_failed job_id=%s attempt=%d error_code=invalid_output",
+            job.id,
+            job.attempt_count,
+        )
         return True
-    except ModelAdapterError:
+    except ModelAdapterError as error:
         with connection_factory() as connection:
             _record_failure(
                 connection,
@@ -322,8 +347,19 @@ def process_next_job(
                 error_code="provider_rejected",
                 retryable=False,
             )
+        logger.warning(
+            "agent_job_failed job_id=%s attempt=%d error_code=provider_rejected "
+            "provider_status_code=%s provider_reason=%s provider_error_type=%s "
+            "provider_error_code=%s",
+            job.id,
+            job.attempt_count,
+            error.provider_status_code,
+            error.provider_reason,
+            error.provider_error_type,
+            error.provider_error_code,
+        )
         return True
-    except Exception:
+    except Exception as error:
         with connection_factory() as connection:
             _record_failure(
                 connection,
@@ -331,8 +367,16 @@ def process_next_job(
                 error_code="processing_error",
                 retryable=False,
             )
+        logger.error(
+            "agent_job_failed job_id=%s attempt=%d error_code=processing_error "
+            "exception_type=%s",
+            job.id,
+            job.attempt_count,
+            type(error).__name__,
+        )
         raise
 
     with connection_factory() as connection:
         _save_suggestion(connection, job, result)
+    logger.info("agent_job_succeeded job_id=%s attempt=%d", job.id, job.attempt_count)
     return True

@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 from psycopg.rows import dict_row
 
-from app import agent_jobs, auth
+from app import agent_jobs, agent_routes, auth
 from app.agent_jobs import process_next_job
 from app.agent_schema import ProcessingProposal
 from app.main import app
@@ -86,7 +86,15 @@ def connection(database_url: str) -> Iterator[psycopg.Connection]:
 
 
 @pytest.fixture
-def client(database_url: str) -> Iterator[TestClient]:
+def client(
+    database_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[TestClient]:
+    monkeypatch.setattr(
+        agent_routes,
+        "configured_model_adapter",
+        lambda: FixedProposalAdapter(),
+    )
     app.state.connection_factory = lambda: psycopg.connect(
         database_url,
         row_factory=dict_row,
@@ -293,6 +301,36 @@ def test_processing_is_explicit_idempotent_and_user_scoped(
             (job_id, job_id),
         ).fetchone()
     assert counts == {"jobs": 1, "suggestions": 1}
+
+
+def test_processing_is_rejected_when_provider_is_not_configured(
+    client: TestClient,
+    identities: dict[str, str],
+    connection: psycopg.Connection,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner_headers = {"Authorization": f"Bearer {identities['token_a']}"}
+    capture_id = client.post(
+        "/api/v1/captures",
+        headers=owner_headers,
+        json={"text": "A synthetic capture for provider configuration."},
+    ).json()["capture"]["id"]
+    monkeypatch.setattr(agent_routes, "configured_model_adapter", lambda: None)
+
+    response = client.post(
+        f"/api/v1/captures/{capture_id}/process",
+        headers=owner_headers,
+    )
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "provider_unavailable"
+    assert (
+        connection.execute(
+            "SELECT count(*) AS count FROM agent_jobs WHERE capture_id = %s",
+            (capture_id,),
+        ).fetchone()["count"]
+        == 0
+    )
 
 
 def test_daily_processing_limit_counts_new_jobs_per_user(

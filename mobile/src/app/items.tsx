@@ -109,7 +109,6 @@ export default function ItemsScreen() {
         >
           <Text style={styles.backText}>‹ Inbox</Text>
         </Pressable>
-        <Text style={styles.brand}>BrainDump</Text>
       </View>
       <FlatList
         contentContainerStyle={styles.content}
@@ -151,7 +150,7 @@ export default function ItemsScreen() {
             accessibilityRole="button"
             accessibilityLabel={`Open ${item.title}, ${item.type}`}
             onPress={() =>
-              router.push({ pathname: "./[itemId]", params: { itemId: item.id } })
+              router.push({ pathname: "/items/[itemId]", params: { itemId: item.id } })
             }
             style={({ pressed }) => [styles.itemCard, pressed && styles.pressed]}
           >
@@ -199,7 +198,6 @@ const styles = StyleSheet.create({
   },
   backButton: { minHeight: 44, justifyContent: "center", paddingRight: 12 },
   backText: { color: "#53685A", fontSize: 15, fontWeight: "700" },
-  brand: { color: "#24342A", fontFamily: "Georgia", fontSize: 19, fontWeight: "700" },
   content: { padding: 20, paddingBottom: 40, flexGrow: 1 },
   titleBlock: { marginBottom: 18 },
   eyebrow: { color: "#68746B", fontSize: 11, fontWeight: "700", letterSpacing: 1.5 },

@@ -21,6 +21,7 @@ from app.agent_review import (
 from app.auth import current_user_id
 from app.database import get_connection
 from app.errors import ApiError
+from app.model_factory import configured_model_adapter
 from app.validation import read_json_body
 
 router = APIRouter(prefix="/api/v1")
@@ -71,6 +72,17 @@ def request_capture_processing(
 ) -> dict[str, object]:
     if not user_id:
         raise ApiError("Authentication required.", 401)
+
+    try:
+        adapter = configured_model_adapter()
+    except RuntimeError:
+        adapter = None
+    if adapter is None:
+        raise ApiError(
+            "AI processing is not configured on this server.",
+            503,
+            code="provider_unavailable",
+        )
 
     try:
         job = enqueue_capture_job(
