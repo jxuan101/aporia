@@ -1,5 +1,6 @@
 import { usePathname } from "expo-router";
 import { TabList, TabSlot, TabTrigger, Tabs } from "expo-router/ui";
+import { Feather } from "@expo/vector-icons";
 import { StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -16,12 +17,17 @@ function TabButton({
 }: {
   name: TabName;
   label: string;
-  icon: string;
+  icon: "home" | "inbox" | "bookmark" | "user";
   selected: boolean;
 }) {
   return (
     <TabTrigger name={name} style={styles.tabButton}>
-      <Text style={[styles.tabIcon, selected && styles.selectedTabText]}>{icon}</Text>
+      <Feather
+        name={icon}
+        size={20}
+        color={selected ? "#2F4636" : "#7A857C"}
+        style={styles.tabIcon}
+      />
       <Text style={[styles.tabLabel, selected && styles.selectedTabText]}>
         {label}
       </Text>
@@ -41,11 +47,11 @@ function BottomBar() {
 
   return (
     <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 4) }]}>
-      <TabButton icon="⌂" label="Home" name="home" selected={selected("home")} />
-      <TabButton icon="▤" label="Inbox" name="inbox" selected={selected("inbox")} />
+      <TabButton icon="home" label="Home" name="home" selected={selected("home")} />
+      <TabButton icon="inbox" label="Inbox" name="inbox" selected={selected("inbox")} />
       <HoldToCaptureButton />
-      <TabButton icon="▣" label="Saved" name="saved" selected={selected("saved")} />
-      <TabButton icon="○" label="Profile" name="profile" selected={selected("profile")} />
+      <TabButton icon="bookmark" label="Saved" name="saved" selected={selected("saved")} />
+      <TabButton icon="user" label="Profile" name="profile" selected={selected("profile")} />
     </View>
   );
 }
@@ -54,7 +60,7 @@ export default function TabLayout() {
   return (
     <Tabs>
       <SwipeBetweenTabs>
-        <TabSlot style={styles.slot} />
+        <TabSlot detachInactiveScreens={false} style={styles.slot} />
       </SwipeBetweenTabs>
       <BottomBar />
       <TabList style={styles.routeList}>
@@ -87,7 +93,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     minHeight: 52,
   },
-  tabIcon: { color: "#7A857C", fontSize: 20, lineHeight: 25 },
+  tabIcon: { marginBottom: 3 },
   tabLabel: { color: "#68746B", fontSize: 10, fontWeight: "600" },
   selectedTabText: { color: "#2F4636" },
 });

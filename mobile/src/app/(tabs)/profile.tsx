@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import { router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -8,6 +8,7 @@ import { exportCaptures, revokeSession } from "../../lib/api";
 import { shareCaptureExport } from "../../lib/export";
 import { clearGoogleSignIn } from "../../lib/google-auth";
 import { SESSION_KEY } from "../../lib/session";
+import { BrainDumpHeader } from "../../components/BrainDumpHeader";
 
 export default function ProfileScreen() {
   const [token, setToken] = useState<string | null>(null);
@@ -65,9 +66,10 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={styles.screen}>
+      <BrainDumpHeader />
       <View style={styles.content}>
-        <Text style={styles.eyebrow}>ACCOUNT</Text>
-        <Text accessibilityRole="header" style={styles.title}>Profile</Text>
+        <Text style={styles.eyebrow}>PROFILE</Text>
+        <Text accessibilityRole="header" style={styles.title}>Account</Text>
         <Text style={styles.description}>
           Manage your BrainDump data and account on this device.
         </Text>
@@ -85,9 +87,9 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   screen: { backgroundColor: "#F6F4EE", flex: 1 },
-  content: { padding: 22, paddingTop: 35 },
-  eyebrow: { color: "#68746B", fontSize: 11, fontWeight: "700", letterSpacing: 1.5 },
-  title: { color: "#24342A", fontFamily: "Georgia", fontSize: 32, fontWeight: "700", marginTop: 8 },
+  content: { padding: 20, paddingTop: 20 },
+  eyebrow: { color: "#68746B", fontSize: 11, fontWeight: "700", letterSpacing: 1.6 },
+  title: { color: "#24342A", fontFamily: Platform.select({ ios: "Georgia", android: "serif", default: "Georgia" }), fontSize: 36, fontWeight: "600", lineHeight: 43, marginTop: 10, maxWidth: 340 },
   description: { color: "#59645C", fontSize: 15, lineHeight: 22, marginTop: 8 },
   action: { alignItems: "center", backgroundColor: "#FFFFFF", borderColor: "#E5E3DA", borderRadius: 12, borderWidth: 1, justifyContent: "center", marginTop: 22, minHeight: 52 },
   actionText: { color: "#2F4636", fontSize: 15, fontWeight: "700" },

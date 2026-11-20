@@ -38,6 +38,7 @@ import {
   signInWithGoogle,
 } from "../../lib/google-auth";
 import { SESSION_KEY } from "../../lib/session";
+import { BrainDumpHeader } from "../../components/BrainDumpHeader";
 
 const JOB_STATUS_POLL_INITIAL_DELAY_MS = 2_000;
 const JOB_STATUS_POLL_MAX_DELAY_MS = 10_000;
@@ -923,16 +924,7 @@ export default function InboxScreen() {
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.flex}
       >
-        <View style={styles.header}>
-          <View style={styles.headerBrand}>
-            <View style={[styles.brandMark, styles.smallBrandMark]}>
-              <Text style={[styles.brandMarkText, styles.smallBrandMarkText]}>
-                b
-              </Text>
-            </View>
-            <Text style={styles.brandName}>BrainDump</Text>
-          </View>
-        </View>
+        <BrainDumpHeader />
 
         <ScrollView
           contentContainerStyle={styles.content}
@@ -1157,7 +1149,7 @@ const styles = StyleSheet.create({
   },
   brandMarkText: {
     color: "#FFFFFF",
-    fontFamily: Platform.select({ ios: "Georgia", android: "serif" }),
+    fontFamily: Platform.select({ ios: "Georgia", android: "serif", default: "Georgia" }),
     fontSize: 36,
     fontWeight: "700",
     lineHeight: 40,
@@ -1220,39 +1212,9 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     marginTop: 20,
   },
-  header: {
-    alignItems: "center",
-    borderBottomColor: "#E5E3DA",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingVertical: 11,
-  },
-  headerBrand: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 9,
-  },
-  smallBrandMark: {
-    borderRadius: 12,
-    height: 34,
-    marginBottom: 0,
-    width: 34,
-  },
-  smallBrandMarkText: {
-    fontSize: 24,
-    lineHeight: 28,
-  },
-  brandName: {
-    color: "#24342A",
-    fontFamily: Platform.select({ ios: "Georgia", android: "serif" }),
-    fontSize: 20,
-    fontWeight: "700",
-  },
   content: {
     paddingHorizontal: 20,
-    paddingTop: 28,
+    paddingTop: 20,
     paddingBottom: 48,
   },
   fieldLabel: {

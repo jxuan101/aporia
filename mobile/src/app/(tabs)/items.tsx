@@ -1,18 +1,20 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 import * as SecureStore from "expo-secure-store";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ApiError, type BrainDumpItem, listItems } from "../../lib/api";
 import { SESSION_KEY } from "../../lib/session";
+import { BrainDumpHeader } from "../../components/BrainDumpHeader";
 
 export default function ItemsScreen() {
   const [items, setItems] = useState<BrainDumpItem[]>([]);
@@ -30,38 +32,45 @@ export default function ItemsScreen() {
     setNextCursor(result.nextCursor);
   }, []);
 
-  useEffect(() => {
-    let active = true;
-    async function restoreItems() {
-      try {
-        const storedToken = await SecureStore.getItemAsync(SESSION_KEY);
-        if (!storedToken) {
-          router.replace("/");
-          return;
-        }
-        if (active) {
-          setToken(storedToken);
-          await load(storedToken);
-        }
-      } catch (loadError) {
-        if (active) {
-          setError(
-            loadError instanceof Error
-              ? loadError.message
-              : "Your items could not be loaded.",
-          );
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      async function restoreItems() {
+        try {
+          const storedToken = await SecureStore.getItemAsync(SESSION_KEY);
+          if (!storedToken) {
+            router.replace("/");
+            return;
+          }
+          if (active) {
+            setToken(storedToken);
+            setError(null);
+            const result = await listItems(storedToken);
+            if (active) {
+              setItems(result.items);
+              setNextCursor(result.nextCursor);
+            }
+          }
+        } catch (loadError) {
+          if (active) {
+            setError(
+              loadError instanceof Error
+                ? loadError.message
+                : "Your items could not be loaded.",
+            );
+          }
+        } finally {
+          if (active) {
+            setLoading(false);
+          }
         }
       }
-    }
-    void restoreItems();
-    return () => {
-      active = false;
-    };
-  }, [load]);
+      void restoreItems();
+      return () => {
+        active = false;
+      };
+    }, []),
+  );
 
   async function refresh() {
     if (!token) return;
@@ -101,6 +110,7 @@ export default function ItemsScreen() {
 
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={styles.screen}>
+      <BrainDumpHeader />
       <FlatList
         contentContainerStyle={styles.content}
         data={items}
@@ -181,7 +191,7 @@ const styles = StyleSheet.create({
   content: { padding: 20, paddingBottom: 40, flexGrow: 1 },
   titleBlock: { marginBottom: 18 },
   eyebrow: { color: "#68746B", fontSize: 11, fontWeight: "700", letterSpacing: 1.5 },
-  title: { color: "#24342A", fontFamily: "Georgia", fontSize: 32, fontWeight: "700", marginTop: 8 },
+  title: { color: "#24342A", fontFamily: Platform.select({ ios: "Georgia", android: "serif", default: "Georgia" }), fontSize: 36, fontWeight: "600", lineHeight: 43, marginTop: 10, maxWidth: 340 },
   bodyText: { color: "#59645C", fontSize: 14, lineHeight: 21, marginTop: 7 },
   emptyCard: { backgroundColor: "#FFFFFF", borderRadius: 15, padding: 18 },
   emptyTitle: { color: "#24342A", fontSize: 17, fontWeight: "700" },

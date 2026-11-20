@@ -23,7 +23,6 @@ export function HoldToCaptureButton() {
   const permissionGrantedForHold = useRef(false);
   const releaseRequested = useRef(false);
   const finalTranscript = useRef("");
-  const recognitionError = useRef<string | null>(null);
   const navigated = useRef(false);
   const restartCount = useRef(0);
   const restartTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -33,10 +32,6 @@ export function HoldToCaptureButton() {
     navigated.current = true;
     const transcript = finalTranscript.current.trim();
     if (!transcript) {
-      const message = recognitionError.current
-        ? `Speech recognition stopped (${recognitionError.current}). Check microphone access and your device's speech service, then try again.`
-        : "No speech was recognized. Hold the microphone and try again.";
-      Alert.alert("No transcript", message);
       return;
     }
     router.push({ pathname: "/quick-capture", params: { transcript } });
@@ -51,7 +46,6 @@ export function HoldToCaptureButton() {
       return;
     }
 
-    recognitionError.current = null;
     recognitionRequested.current = true;
     try {
       ExpoSpeechRecognitionModule.start({
@@ -85,10 +79,6 @@ export function HoldToCaptureButton() {
       finalTranscript.current = `${finalTranscript.current} ${transcript}`.trim();
       restartCount.current = 0;
     }
-  });
-
-  useSpeechRecognitionEvent("error", (event) => {
-    if (event.error !== "aborted") recognitionError.current = event.error;
   });
 
   useSpeechRecognitionEvent("end", () => {
@@ -165,7 +155,6 @@ export function HoldToCaptureButton() {
   function handlePressIn(): void {
     if (recognitionRequested.current || permissionPending.current) return;
     finalTranscript.current = "";
-    recognitionError.current = null;
     navigated.current = false;
     restartCount.current = 0;
     if (restartTimer.current) clearTimeout(restartTimer.current);

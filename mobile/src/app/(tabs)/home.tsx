@@ -1,12 +1,14 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { BrainDumpHeader } from "../../components/BrainDumpHeader";
 
 export default function HomeScreen() {
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={styles.screen}>
+      <BrainDumpHeader />
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.eyebrow}>BRAIN DUMP</Text>
+        <Text style={styles.eyebrow}>HOME</Text>
         <Text accessibilityRole="header" style={styles.title}>Make room to think.</Text>
         <Text style={styles.body}>
           Capture what is on your mind, then return when you are ready to organize it.
@@ -39,9 +41,9 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   screen: { backgroundColor: "#F6F4EE", flex: 1 },
-  content: { padding: 22, paddingBottom: 30 },
-  eyebrow: { color: "#68746B", fontSize: 11, fontWeight: "700", letterSpacing: 1.5, marginTop: 18 },
-  title: { color: "#24342A", fontFamily: "Georgia", fontSize: 34, fontWeight: "700", marginTop: 12 },
+  content: { padding: 20, paddingBottom: 30 },
+  eyebrow: { color: "#68746B", fontSize: 11, fontWeight: "700", letterSpacing: 1.6 },
+  title: { color: "#24342A", fontFamily: Platform.select({ ios: "Georgia", android: "serif", default: "Georgia" }), fontSize: 36, fontWeight: "600", lineHeight: 43, marginTop: 10, maxWidth: 340 },
   body: { color: "#59645C", fontSize: 15, lineHeight: 23, marginTop: 8 },
   primaryButton: { alignItems: "center", backgroundColor: "#2F4636", borderRadius: 14, justifyContent: "center", minHeight: 54, marginTop: 26 },
   primaryText: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },

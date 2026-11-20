@@ -28,3 +28,11 @@ Things to fix:
 - [x] Remove text from the microphone button and also fix a bug where the microphone button lets go by itself really quickly.
 - [x] Suggested next steps can be completed and checked off.
 - [x] Fixed repeated speech to text attempts stopping after the first successful use.
+- [x] Deleting a capture refreshes the saved items list when returning to that tab.
+- [x] If there is no transcription, do not show a popup; silently do nothing.
+- [x] Show the branded BrainDump header on all tabs, without a redundant Home heading.
+- [x] Rejecting an AI suggestion allows Process with AI to request a fresh suggestion.
+- [x] Use more intuitive Inbox, Saved, and Profile tab icons.
+- [x] Match top heading styles and placement across tabs, and label the Home tab heading.
+- [x] Label the Daily Review back button “Back”.
+- [x] Keep tab screens mounted between switches and smooth the slide transition.

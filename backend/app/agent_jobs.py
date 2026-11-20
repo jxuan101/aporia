@@ -81,14 +81,19 @@ def enqueue_capture_job(
 
     job = connection.execute(
         """
-        SELECT id, capture_id, status, attempt_count, error_code, created_at,
-            updated_at
-        FROM agent_jobs
-        WHERE user_id = %s AND capture_id = %s AND capture_revision = %s
+        SELECT j.id, j.capture_id, j.status, j.attempt_count, j.error_code,
+            j.created_at, j.updated_at, s.status AS suggestion_status
+        FROM agent_jobs j
+        LEFT JOIN agent_suggestions s ON s.job_id = j.id AND s.user_id = j.user_id
+        WHERE j.user_id = %s AND j.capture_id = %s AND j.capture_revision = %s
+        ORDER BY j.created_at DESC
+        LIMIT 1
         """,
         (user_id, capture_id, capture["updated_at"]),
     ).fetchone()
-    if job is None:
+    if job is None or (
+        job["status"] == "succeeded" and job["suggestion_status"] == "rejected"
+    ):
         _consume_daily_processing_request(connection, user_id=user_id)
         job = connection.execute(
             """

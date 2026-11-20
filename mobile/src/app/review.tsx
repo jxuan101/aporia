@@ -322,7 +322,7 @@ export default function DailyReviewScreen() {
           onPress={() => router.back()}
           style={styles.backButton}
         >
-          <Text style={styles.backText}>‹ Inbox</Text>
+          <Text style={styles.backText}>‹ Back</Text>
         </Pressable>
       </View>
       <FlatList

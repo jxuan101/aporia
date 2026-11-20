@@ -28,7 +28,7 @@ export function SwipeBetweenTabs({ children }: { children: ReactNode }) {
     slideX.setValue(nextIndex > oldIndex ? width : -width);
     Animated.timing(slideX, {
       toValue: 0,
-      duration: 160,
+      duration: 220,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();

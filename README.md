@@ -460,6 +460,9 @@ A suggested solo-developer sequence. Time estimates are planning ranges, not com
 - Collect qualitative feedback.
 - Fix confusing agent suggestions and reliability issues.
 - Verify export, deletion, backup, and restore.
+- Verify user API rate limits and AI call limits.
+- Verify security and find and fix all vulnerabilities.
+- Setup AWS
 
 **Exit criteria:** Core workflows are stable and users return because the app reliably helps them retrieve or act on captured thoughts.
 
