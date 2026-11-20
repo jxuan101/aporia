@@ -55,5 +55,4 @@ Things to fix:
 - [x] When editing a capture, the text box is stretched too big, it should be sized approximately the same as the one in quick capture.
 - [x] Should there be a character limit for a capture and also for searching? Also, set a max height for the textbox so it doesn't grow beyond the viewport.
 - [x] When I delete a saved item but keep the capture, I can't process the capture with AI again.
-- [x] The AI suggestion might ask a question for clarification, what should be the process?
 - [x] When AI processes a capture, should it try to link existing saved items or captures?
