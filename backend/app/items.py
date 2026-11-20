@@ -3,14 +3,15 @@
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from psycopg import Connection
+from psycopg.types.json import Jsonb
 
 from app.auth import current_user_id
 from app.database import get_connection
 from app.errors import ApiError
 from app.text_signals import meaningful_terms
-from app.validation import capture_id, search_query
+from app.validation import capture_id, read_json_body, search_query
 
 router = APIRouter(prefix="/api/v1/items")
 PAGE_SIZE = 30
@@ -27,6 +28,7 @@ def _serialize_item(row: dict[str, Any]) -> dict[str, object]:
         "summary": row["summary"],
         "labels": row["labels_json"],
         "candidateTasks": row["candidate_tasks_json"],
+        "completedTaskIndexes": row["completed_task_indexes_json"],
         "createdAt": row["created_at"].isoformat().replace("+00:00", "Z"),
         "updatedAt": row["updated_at"].isoformat().replace("+00:00", "Z"),
     }
@@ -93,7 +95,7 @@ def list_items(
     rows = connection.execute(
         f"""
         SELECT id, capture_id, item_type, title, summary, labels_json,
-            candidate_tasks_json, created_at, updated_at
+            candidate_tasks_json, completed_task_indexes_json, created_at, updated_at
         FROM items
         WHERE {" AND ".join(clauses)}
         ORDER BY created_at DESC, id DESC
@@ -125,7 +127,8 @@ def read_item(
     row = connection.execute(
         """
         SELECT i.id, i.capture_id, i.item_type, i.title, i.summary, i.labels_json,
-            i.candidate_tasks_json, i.created_at, i.updated_at,
+            i.candidate_tasks_json, i.completed_task_indexes_json,
+            i.created_at, i.updated_at,
             c.raw_text, c.current_text
         FROM items i
         JOIN captures c ON c.id = i.capture_id AND c.user_id = i.user_id
@@ -142,6 +145,54 @@ def read_item(
         "currentText": row["current_text"],
     }
     return {"item": item}
+
+
+@router.put("/{item_id}/tasks/{task_index}/completion")
+async def update_task_completion(
+    item_id: str,
+    task_index: int,
+    request: Request,
+    connection: Annotated[Connection, Depends(get_connection)],
+    user_id: Annotated[str | None, Depends(current_user_id)],
+) -> dict[str, object]:
+    if not user_id:
+        raise ApiError("Authentication required.", 401)
+    try:
+        parsed_id = UUID(item_id)
+    except ValueError:
+        raise ApiError("The requested item is unavailable.", 404) from None
+    body = await read_json_body(request)
+    if (
+        not isinstance(body, dict)
+        or set(body) != {"completed"}
+        or not isinstance(body["completed"], bool)
+    ):
+        raise ApiError("Choose whether the step is complete.", 400)
+    row = connection.execute(
+        """
+        SELECT candidate_tasks_json, completed_task_indexes_json
+        FROM items WHERE id = %s AND user_id = %s FOR UPDATE
+        """,
+        (parsed_id, user_id),
+    ).fetchone()
+    if row is None:
+        raise ApiError("The requested item is unavailable.", 404)
+    if task_index < 0 or task_index >= len(row["candidate_tasks_json"]):
+        raise ApiError("The requested step is unavailable.", 404)
+    completed = set(row["completed_task_indexes_json"])
+    if body["completed"]:
+        completed.add(task_index)
+    else:
+        completed.discard(task_index)
+    indexes = sorted(completed)
+    connection.execute(
+        """
+        UPDATE items SET completed_task_indexes_json = %s, updated_at = now()
+        WHERE id = %s AND user_id = %s
+        """,
+        (Jsonb(indexes), parsed_id, user_id),
+    )
+    return {"completedTaskIndexes": indexes}
 
 
 @router.delete("/{item_id}", status_code=204)
@@ -253,7 +304,8 @@ def read_related_items(
         rows = connection.execute(
             """
             SELECT id, capture_id, item_type, title, summary, labels_json,
-                candidate_tasks_json, created_at, updated_at
+                candidate_tasks_json, completed_task_indexes_json,
+                created_at, updated_at
             FROM items
             WHERE user_id = %s AND id = ANY(%s)
             ORDER BY created_at DESC, id DESC
@@ -266,7 +318,8 @@ def read_related_items(
     candidate_rows = connection.execute(
         """
         SELECT i.id, i.capture_id, i.item_type, i.title, i.summary, i.labels_json,
-            i.candidate_tasks_json, i.created_at, i.updated_at, c.current_text
+            i.candidate_tasks_json, i.completed_task_indexes_json,
+            i.created_at, i.updated_at, c.current_text
         FROM items i
         JOIN captures c ON c.id = i.capture_id AND c.user_id = i.user_id
         WHERE i.user_id = %s AND i.id <> %s

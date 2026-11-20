@@ -101,15 +101,6 @@ export default function ItemsScreen() {
 
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={styles.screen}>
-      <View style={styles.header}>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.back()}
-          style={styles.backButton}
-        >
-          <Text style={styles.backText}>‹ Inbox</Text>
-        </Pressable>
-      </View>
       <FlatList
         contentContainerStyle={styles.content}
         data={items}
@@ -187,17 +178,6 @@ export default function ItemsScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#F6F4EE" },
-  header: {
-    alignItems: "center",
-    borderBottomColor: "#E5E3DA",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-  },
-  backButton: { minHeight: 44, justifyContent: "center", paddingRight: 12 },
-  backText: { color: "#53685A", fontSize: 15, fontWeight: "700" },
   content: { padding: 20, paddingBottom: 40, flexGrow: 1 },
   titleBlock: { marginBottom: 18 },
   eyebrow: { color: "#68746B", fontSize: 11, fontWeight: "700", letterSpacing: 1.5 },

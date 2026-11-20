@@ -13,9 +13,13 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       "expo-speech-recognition",
       {
         microphonePermission:
-          "BrainDump uses the microphone when you choose voice capture.",
+          "BrainDump uses the microphone while you hold the capture button.",
         speechRecognitionPermission:
-          "BrainDump uses speech recognition to turn your voice into capture text.",
+          "BrainDump uses speech recognition to fill in your capture.",
+        androidSpeechServicePackages: [
+          "com.google.android.googlequicksearchbox",
+          "com.google.android.tts",
+        ],
       },
     ],
   ];

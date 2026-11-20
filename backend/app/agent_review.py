@@ -149,7 +149,8 @@ def accept_suggestion(
             """
             UPDATE items
             SET suggestion_id = %s, item_type = %s, title = %s, summary = %s,
-                labels_json = %s, candidate_tasks_json = %s, updated_at = now()
+                labels_json = %s, candidate_tasks_json = %s,
+                completed_task_indexes_json = '[]'::jsonb, updated_at = now()
             WHERE user_id = %s AND id = %s
             RETURNING id
             """,

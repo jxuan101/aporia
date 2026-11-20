@@ -1,15 +1,17 @@
 import { useState } from "react";
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import * as SecureStore from "expo-secure-store";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { createCapture } from "../lib/api";
 import { SESSION_KEY } from "../lib/session";
-import { SpeechInputToggle } from "../components/SpeechInputToggle";
 
 export default function QuickCaptureScreen() {
-  const [text, setText] = useState("");
+  const { transcript } = useLocalSearchParams<{ transcript?: string }>();
+  const [text, setText] = useState(() =>
+    typeof transcript === "string" ? transcript : "",
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,10 +35,6 @@ export default function QuickCaptureScreen() {
     }
   }
 
-  function appendTranscript(transcript: string) {
-    setText((current) => `${current.trimEnd()}${current.trim() ? " " : ""}${transcript}`);
-  }
-
   return (
     <SafeAreaView style={styles.screen}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.flex}>
@@ -47,7 +45,7 @@ export default function QuickCaptureScreen() {
               <Text style={styles.closeText}>Cancel</Text>
             </Pressable>
           </View>
-          <Text style={styles.description}>Say it or write it down. Your original wording is saved.</Text>
+          <Text style={styles.description}>Review or edit your capture before saving it to the inbox.</Text>
           <TextInput
             accessibilityLabel="Capture text"
             autoFocus
@@ -60,7 +58,6 @@ export default function QuickCaptureScreen() {
             textAlignVertical="top"
             value={text}
           />
-          <SpeechInputToggle onTranscript={appendTranscript} />
           {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
           <Pressable accessibilityRole="button" disabled={busy || !text.trim()} onPress={() => void save()} style={[styles.saveButton, (busy || !text.trim()) && styles.disabled]}>
             {busy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.saveText}>Save to inbox</Text>}

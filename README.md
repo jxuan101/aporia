@@ -34,7 +34,7 @@ Use `make help` in `backend/` to see the available backend commands.
 
 If the root `.env.local` already exists, preserve it and set `AUTH_GOOGLE_ID` to the Google **Web application** OAuth client ID. The Android OAuth client ID is a separate credential and cannot be used as the backend audience. The backend verifies native Google ID tokens against the Web client ID. Do not put client secrets in the mobile app; native sign-in does not use a client secret.
 
-To prepare the optional Groq adapter, set `GROQ_API_KEY` and `GROQ_MODEL` in the root `.env.local`. Select a current model ID from [Groq's model list](https://console.groq.com/docs/models). The backend starts without these values; processing requests fail in a structured way until they are configured. Processing sends only the selected capture to Groq through the official Python SDK. Groq JSON mode ensures valid JSON syntax, and the backend still validates the proposal against its own schema and the original capture.
+To prepare the optional Groq adapter, set `GROQ_API_KEY` and `GROQ_MODEL` in the root `.env.local`. Select a current model ID from [Groq's model list](https://console.groq.com/docs/models). The backend starts without these values; AI processing requests fail in a structured way until Groq is configured. Processing sends only the selected capture to Groq through the official Python SDK. Groq JSON mode ensures valid JSON syntax, and the backend still validates the proposal against its own schema and the original capture.
 
 Set up the mobile app in a second terminal:
 
@@ -52,11 +52,11 @@ Configure Google OAuth clients in the same Google Cloud project:
 - Set `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` to the iOS OAuth client ID. The app derives its iOS URL scheme from this value.
 - Register the Android package `com.braindump.mobile` and the signing certificate SHA-1 fingerprints in Google Cloud. For local builds, obtain the debug fingerprint after generating the native project.
 
-Google sign-in and speech recognition use native code, so Expo Go is not supported. Voice capture uses the device's speech-recognition service, requests microphone and speech permissions, and does not save an audio recording. Depending on device settings and platform services, speech recognition may use network services. Build and run a development app with `npm run ios` or `npm run android` from `mobile/`; these commands require the corresponding local platform toolchain. Start Metro separately with `npm start` in `mobile/` when needed.
+Google sign-in and speech recognition use native code, so Expo Go is not supported. Hold the center microphone button to speak; releasing it stops the device speech-recognition service and opens the capture form with the transcript filled in. Recognition runs through the platform service, which may use network services depending on the device and its settings. BrainDump does not upload or save a voice recording. The app requests microphone and speech-recognition permissions when voice capture is first used. Build and run a development app with `npm run ios` or `npm run android` from `mobile/`; these commands require the corresponding local platform toolchain. Start Metro separately with `npm start` in `mobile/` when needed.
 
 The API supports Google sign-in, user-scoped capture creation/edit/deletion, PostgreSQL full-text search across captures and saved-item metadata, paginated capture and item lists, item details, JSON export, explicit AI processing, and suggestion accept/edit/reject. Session tokens are random, revocable bearer tokens stored in iOS Keychain or Android Keystore through Expo SecureStore. Google ID tokens are verified by the backend and are not retained; Drive access is not requested. Editing keeps the original capture, and deleting remains permanent.
 
-The mobile app has Home, Inbox, Saved, and Profile tabs with a separate quick-capture button in the center. Horizontal swipes switch between those four tabs and stop at the first and last tab. Export and sign-out are available from Profile.
+The mobile app has Home, Inbox, Saved, and Profile tabs with a separate hold-to-capture microphone button in the center. Hold it to record, then release to transcribe and open the quick-capture form. Horizontal swipes slide between the four tabs and stop at the first and last tab; pushed pages slide in. Inbox is for finding and processing existing captures. Export and sign-out are available from Profile.
 
 Capture creation returns possible duplicate captures after the new capture is saved. The warning compares against up to 500 recent captures owned by the same user, requires at least five meaningful words for approximate matches, and reports up to three matches with 80% term overlap. Exact normalized matches can be warned on even when short. The warning never blocks, merges, or deletes a capture.
 
@@ -73,6 +73,8 @@ Accepted items are available from `GET /api/v1/items` and `GET /api/v1/items/{it
 Capture search uses `GET /api/v1/captures?q=...`; saved-item search uses `GET /api/v1/items?q=...`. Queries use PostgreSQL's English full-text dictionary with web-style phrase and OR syntax. Both search paths retain user scoping and cursor pagination. The mobile search screen shows capture matches and saved-item matches, which open their capture card or item detail respectively.
 
 Related-item candidates are generated from shared meaningful words in each item's title, summary, labels, candidate tasks, and source capture. Candidates need at least two shared non-stopwords; the API scores the 500 most recent items and returns up to 10 matches. The detail screen shows matching terms so users can decide whether to link the items. `GET /api/v1/items/{item_id}/related` returns existing links and candidates; `POST` and `DELETE /api/v1/items/{item_id}/related/{related_item_id}` add or remove a user-approved link. Links are symmetric and scoped to one user. Model-proposed IDs never create links; review acceptance clears them, and linking always requires a separate user action.
+
+Suggested next steps on saved items can be checked off individually. Completion state is stored per saved item, scoped through the owning user, and reset when a new AI proposal replaces that item's steps. Apply database migration `0008_item_task_completion` before using the feature.
 
 ```sh
 cd backend

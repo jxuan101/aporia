@@ -17,6 +17,7 @@ import {
   deleteItem,
   getItem,
   getRelatedItems,
+  setTaskCompletion,
   type BrainDumpItemDetail,
   type RelatedItems,
   removeRelatedItem,
@@ -30,8 +31,10 @@ export default function ItemDetailScreen() {
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [updatingLink, setUpdatingLink] = useState(false);
+  const [updatingTask, setUpdatingTask] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
+  const [taskError, setTaskError] = useState<string | null>(null);
 
   const refreshRelated = useCallback(async (sessionToken: string) => {
     setRelated(await getRelatedItems(sessionToken, itemId));
@@ -119,6 +122,21 @@ export default function ItemDetailScreen() {
       );
     } finally {
       setUpdatingLink(false);
+    }
+  }
+
+  async function toggleTask(index: number) {
+    if (!token || !item || updatingTask !== null) return;
+    setTaskError(null);
+    setUpdatingTask(index);
+    try {
+      const completed = !item.completedTaskIndexes.includes(index);
+      const indexes = await setTaskCompletion(token, item.id, index, completed);
+      setItem({ ...item, completedTaskIndexes: indexes });
+    } catch (requestError) {
+      setTaskError(requestError instanceof Error ? requestError.message : "The step could not be updated.");
+    } finally {
+      setUpdatingTask(null);
     }
   }
 
@@ -233,9 +251,20 @@ export default function ItemDetailScreen() {
           {item.candidateTasks.length ? (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Suggested next steps</Text>
+              {taskError ? <Text accessibilityRole="alert" style={styles.errorText}>{taskError}</Text> : null}
               {item.candidateTasks.map((task, index) => (
                 <View key={`${item.id}:task:${index}`} style={styles.task}>
-                  <Text style={styles.taskTitle}>{task.title}</Text>
+                  <Pressable
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: item.completedTaskIndexes.includes(index), disabled: updatingTask !== null }}
+                    accessibilityLabel={`Mark step ${task.title} ${item.completedTaskIndexes.includes(index) ? "incomplete" : "complete"}`}
+                    disabled={updatingTask !== null}
+                    onPress={() => void toggleTask(index)}
+                    style={styles.taskCheckRow}
+                  >
+                    <Text style={styles.checkbox}>{item.completedTaskIndexes.includes(index) ? "☑" : "□"}</Text>
+                    <Text style={[styles.taskTitle, item.completedTaskIndexes.includes(index) && styles.completedTask]}>{task.title}</Text>
+                  </Pressable>
                   {task.due_date ? (
                     <Text style={styles.text}>Date wording: {task.due_date}</Text>
                   ) : null}
@@ -359,6 +388,9 @@ const styles = StyleSheet.create({
   text: { color: "#59645C", fontSize: 14, lineHeight: 21 },
   task: { backgroundColor: "#FFFFFF", borderRadius: 12, marginTop: 8, padding: 13 },
   taskTitle: { color: "#24342A", fontSize: 15, fontWeight: "700" },
+  taskCheckRow: { alignItems: "center", flexDirection: "row", gap: 10, minHeight: 44 },
+  checkbox: { color: "#2F4636", fontSize: 22 },
+  completedTask: { color: "#68746B", textDecorationLine: "line-through" },
   source: { color: "#68746B", fontSize: 12, lineHeight: 18, marginTop: 8 },
   original: { backgroundColor: "#FFFFFF", borderRadius: 12, color: "#435147", fontSize: 14, lineHeight: 22, padding: 14 },
   currentCapture: { marginTop: 14 },

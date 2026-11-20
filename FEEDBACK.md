@@ -17,8 +17,14 @@ Things to fix:
 - [x] After an edit, the original capture when displayed, should be aboved the AI suggestion box.
 - [x] Captures should map to only one saved item, meaning that if the user edits a capture and processes it with AI and accepts, the old saved item should be replaced by the new.
 - [x] There should be a tab bar on the bottom has has [Home, Inbox, A bigger mic button for quick capturing, Saved, Profile]. The screens when swiped left or right will move to the previous or next tab and should not wrap around if at the edges of the tabs. Also disregard the mic button when swiping because it's not a real tab. The sandwich bar on the header is no longer needed, move export and logout to the profile tab.
-- [ ] Swiping between tabs should have a corresponding seamless transition where the page slides in left to right or right to left. Same goes for transitions between other pages.
-- [ ] The inbox tab does not need to have a capture box.
-- [ ] The saved items tab does not need a redirect to inbox in the header.
-- [ ] When attempting to use Voice Input, prompt the user's device to allow microphone permissions on their device for the app.
-- [ ] Voice input button should just be a microphone button.
+- [x] Swiping between tabs should have a corresponding seamless transition where the page slides in left to right or right to left. Same goes for transitions between other pages.
+- [x] The inbox tab does not need to have a capture box.
+- [x] The saved items tab does not need a redirect to inbox in the header.
+- [x] When attempting to use Voice Input, prompt the user's device to allow microphone permissions on their device for the app.
+- [x] Voice input button should just be a microphone button.
+- [x] Voice input is still broken. Use expo-speech-recognition and request microphone and speech recognition permissions for the app.
+- [x] Swiping between tabs is a little laggy, make it seamless.
+- [x] The center microphone button should be a hold down which if let go, will process what the user said and automatically fill out the quick capture form that appears after letting go of the button.
+- [x] Remove text from the microphone button and also fix a bug where the microphone button lets go by itself really quickly.
+- [x] Suggested next steps can be completed and checked off.
+- [x] Fixed repeated speech to text attempts stopping after the first successful use.

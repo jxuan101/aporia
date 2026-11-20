@@ -49,6 +49,7 @@ const itemSchema = z.object({
   summary: z.string(),
   labels: z.array(z.string()),
   candidateTasks: z.array(candidateTaskSchema),
+  completedTaskIndexes: z.array(z.number().int().nonnegative()),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -305,6 +306,20 @@ export async function getItem(
     token,
   });
   return itemDetailSchema.parse(response).item;
+}
+
+export async function setTaskCompletion(
+  token: string,
+  itemId: string,
+  taskIndex: number,
+  completed: boolean,
+): Promise<number[]> {
+  const response = await request(
+    `/api/v1/items/${encodeURIComponent(itemId)}/tasks/${taskIndex}/completion`,
+    { token, method: "PUT", body: { completed } },
+  );
+  return z.object({ completedTaskIndexes: z.array(z.number().int().nonnegative()) })
+    .parse(response).completedTaskIndexes;
 }
 
 export async function deleteItem(

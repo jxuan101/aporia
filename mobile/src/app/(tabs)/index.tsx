@@ -22,10 +22,8 @@ import {
   type AgentJob,
   type BrainDumpItem,
   type Capture,
-  type CaptureCreation,
   type ProcessingProposal,
   type SuggestionDecision,
-  createCapture,
   deleteCapture,
   exchangeGoogleIdToken,
   getProcessingJob,
@@ -40,7 +38,6 @@ import {
   signInWithGoogle,
 } from "../../lib/google-auth";
 import { SESSION_KEY } from "../../lib/session";
-import { SpeechInputToggle } from "../../components/SpeechInputToggle";
 
 const JOB_STATUS_POLL_INITIAL_DELAY_MS = 2_000;
 const JOB_STATUS_POLL_MAX_DELAY_MS = 10_000;
@@ -603,13 +600,9 @@ export default function InboxScreen() {
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [captures, setCaptures] = useState<Capture[]>([]);
-  const [possibleDuplicates, setPossibleDuplicates] = useState<
-    CaptureCreation["possibleDuplicates"]
-  >([]);
   const [searchItems, setSearchItems] = useState<BrainDumpItem[]>([]);
   const [searchItemsCursor, setSearchItemsCursor] = useState<string | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [captureText, setCaptureText] = useState("");
   const [searchText, setSearchText] = useState("");
   const [activeSearch, setActiveSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -618,7 +611,6 @@ export default function InboxScreen() {
     if (requestError instanceof ApiError && requestError.status === 401) {
       setSessionToken(null);
       setCaptures([]);
-      setPossibleDuplicates([]);
       setSearchItems([]);
       setSearchItemsCursor(null);
       setError("Your session expired. Sign in again to continue.");
@@ -707,26 +699,6 @@ export default function InboxScreen() {
       } else {
         handleError(signInError);
       }
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleCreateCapture() {
-    if (!sessionToken) {
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    setPossibleDuplicates([]);
-    try {
-      const result = await createCapture(sessionToken, captureText);
-      setPossibleDuplicates(result.possibleDuplicates);
-      setCaptureText("");
-      Keyboard.dismiss();
-      await loadInbox(sessionToken, activeSearch);
-    } catch (createError) {
-      handleError(createError);
     } finally {
       setBusy(false);
     }
@@ -980,75 +952,6 @@ export default function InboxScreen() {
             <Text style={styles.reviewNavText}>Open daily review</Text>
           </Pressable>
 
-          <View style={styles.composer}>
-            <Text style={styles.fieldLabel}>What is on your mind?</Text>
-            <TextInput
-              accessibilityLabel="What is on your mind?"
-              editable={!busy}
-              maxLength={10_000}
-              multiline
-              onChangeText={setCaptureText}
-              placeholder="Write it down. You can organize it later."
-              placeholderTextColor="#7E867D"
-              style={styles.composerInput}
-              textAlignVertical="top"
-              value={captureText}
-            />
-            <Text style={styles.helperText}>
-              Your original wording is kept when you edit a capture.
-            </Text>
-            {possibleDuplicates.length > 0 && (
-              <View style={styles.duplicateWarning}>
-                <Text style={styles.duplicateWarningTitle}>
-                  Similar thought already saved
-                </Text>
-                <Text style={styles.duplicateWarningText}>
-                  Your new capture is saved. It looks similar to:
-                </Text>
-                {possibleDuplicates.map((duplicate) => (
-                  <Text
-                    key={duplicate.id}
-                    numberOfLines={3}
-                    style={styles.duplicateMatchText}
-                  >
-                    {duplicate.currentText}
-                  </Text>
-                ))}
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => setPossibleDuplicates([])}
-                  style={styles.linkButton}
-                >
-                  <Text style={styles.linkText}>Dismiss warning</Text>
-                </Pressable>
-              </View>
-            )}
-            <View style={styles.composerActions}>
-              <SpeechInputToggle
-                onTranscript={(transcript) =>
-                  setCaptureText((current) =>
-                    `${current.trimEnd()}${current.trim() ? " " : ""}${transcript}`,
-                  )
-                }
-              />
-              <Pressable
-                accessibilityRole="button"
-                disabled={busy || captureText.trim().length === 0}
-                onPress={() => void handleCreateCapture()}
-                style={({ pressed }) => [
-                  styles.primaryButton,
-                  (busy || captureText.trim().length === 0) &&
-                    styles.disabledButton,
-                  pressed && styles.pressedButton,
-                ]}
-              >
-                <Text style={styles.primaryButtonText}>
-                  {busy ? "Working..." : "Save to inbox"}
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-
           <View style={styles.searchSection}>
             <Text style={styles.fieldLabel}>Find a thought</Text>
             <TextInput
@@ -1137,7 +1040,7 @@ export default function InboxScreen() {
                 ? searchItems.length
                   ? "No captures match. Saved item results are below."
                   : "No captures or saved items match that search."
-                : "No captures yet. Add a thought above whenever you are ready."}
+                : "No captures yet. Use the microphone button to add a thought."}
             </Text>
           ) : (
             captures.map((capture) => (
@@ -1352,58 +1255,11 @@ const styles = StyleSheet.create({
     paddingTop: 28,
     paddingBottom: 48,
   },
-  composer: {
-    backgroundColor: "#FFFFFF",
-    borderColor: "#E5E3DA",
-    borderRadius: 18,
-    borderWidth: 1,
-    marginTop: 24,
-    padding: 16,
-  },
   fieldLabel: {
     color: "#344238",
     fontSize: 14,
     fontWeight: "700",
     marginBottom: 9,
-  },
-  composerInput: {
-    color: "#24342A",
-    fontSize: 16,
-    lineHeight: 23,
-    minHeight: 110,
-    paddingHorizontal: 0,
-    paddingVertical: 5,
-  },
-  helperText: {
-    color: "#717A72",
-    fontSize: 12,
-    lineHeight: 18,
-    marginTop: 4,
-  },
-  duplicateWarning: {
-    backgroundColor: "#FBF3E4",
-    borderColor: "#E7D6B5",
-    borderRadius: 12,
-    borderWidth: 1,
-    marginTop: 13,
-    padding: 12,
-  },
-  duplicateWarningTitle: {
-    color: "#674A1F",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  duplicateWarningText: {
-    color: "#675C49",
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 5,
-  },
-  duplicateMatchText: {
-    color: "#4F4A41",
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 7,
   },
   searchSection: {
     marginTop: 25,
@@ -1481,14 +1337,6 @@ const styles = StyleSheet.create({
     flexDirection: "column",
     marginBottom: 12,
     marginTop: 30,
-  },
-  composerActions: {
-    alignItems: "flex-start",
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    justifyContent: "space-between",
-    marginTop: 8,
   },
   sectionTitle: {
     color: "#24342A",

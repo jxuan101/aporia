@@ -1,5 +1,5 @@
-import { useMemo, type ReactNode } from "react";
-import { PanResponder, View } from "react-native";
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Animated, Easing, PanResponder, useWindowDimensions } from "react-native";
 import { router, usePathname } from "expo-router";
 
 const TAB_ROUTES = ["/home", "/", "/items", "/profile"] as const;
@@ -14,6 +14,26 @@ function routeIndex(pathname: string): number {
 
 export function SwipeBetweenTabs({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const { width } = useWindowDimensions();
+  const [slideX] = useState(() => new Animated.Value(0));
+  const previousIndex = useRef(routeIndex(pathname));
+
+  useLayoutEffect(() => {
+    const nextIndex = routeIndex(pathname);
+    const oldIndex = previousIndex.current;
+    previousIndex.current = nextIndex;
+    if (nextIndex < 0 || oldIndex < 0 || nextIndex === oldIndex) return;
+
+    slideX.stopAnimation();
+    slideX.setValue(nextIndex > oldIndex ? width : -width);
+    Animated.timing(slideX, {
+      toValue: 0,
+      duration: 160,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [pathname, slideX, width]);
+
   const panResponder = useMemo(
     () =>
       PanResponder.create({
@@ -32,8 +52,13 @@ export function SwipeBetweenTabs({ children }: { children: ReactNode }) {
   );
 
   return (
-    <View style={{ flex: 1 }} {...panResponder.panHandlers}>
+    <Animated.View
+      renderToHardwareTextureAndroid
+      shouldRasterizeIOS
+      style={{ flex: 1, transform: [{ translateX: slideX }] }}
+      {...panResponder.panHandlers}
+    >
       {children}
-    </View>
+    </Animated.View>
   );
 }
