@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  Alert,
   ActivityIndicator,
   FlatList,
   Pressable,
@@ -16,6 +17,7 @@ import {
   acceptProcessingSuggestion,
   ApiError,
   deferCaptureReview,
+  deleteCapture,
   getDailyReviewQueue,
   rejectProcessingSuggestion,
   requestCaptureProcessing,
@@ -31,6 +33,7 @@ type ReviewCardProps = {
   onDefer: () => Promise<void>;
   onAccept: (proposal: ProcessingProposal) => Promise<void>;
   onReject: () => Promise<void>;
+  onDelete: () => Promise<void>;
 };
 
 function ReviewCard({
@@ -40,11 +43,23 @@ function ReviewCard({
   onDefer,
   onAccept,
   onReject,
+  onDelete,
 }: ReviewCardProps) {
   const proposal = entry.suggestion?.proposal;
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(proposal?.title ?? "");
   const [summary, setSummary] = useState(proposal?.summary ?? "");
+
+  function confirmDelete() {
+    Alert.alert(
+      "Delete capture?",
+      "This permanently deletes the capture, any saved item created from it, and its review history.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Delete", style: "destructive", onPress: () => void onDelete() },
+      ],
+    );
+  }
 
   async function accept() {
     if (!proposal) return;
@@ -65,6 +80,15 @@ function ReviewCard({
         <Text style={styles.captureDate}>
           {new Date(entry.capture.createdAt).toLocaleDateString()}
         </Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Delete capture"
+          disabled={busy}
+          onPress={confirmDelete}
+          style={styles.deleteButton}
+        >
+          <Text style={styles.deleteButtonText}>×</Text>
+        </Pressable>
       </View>
       <Text style={styles.priorityExplanation}>{entry.priorityExplanation}</Text>
       <Text style={styles.captureText}>{entry.capture.currentText}</Text>
@@ -75,6 +99,7 @@ function ReviewCard({
       ) : null}
 
       {entry.reviewStatus === "suggestion_ready" && proposal ? (
+        <>
         <View style={styles.proposalPanel}>
           <Text style={styles.proposalLabel}>AI suggestion · review required</Text>
           {editing ? (
@@ -151,51 +176,68 @@ function ReviewCard({
             </Pressable>
           </View>
         </View>
-      ) : entry.reviewStatus === "needs_processing" ||
-        entry.reviewStatus === "processing_failed" ? (
         <View style={styles.actions}>
-          {entry.reviewStatus === "processing_failed" ? (
-            <Text style={styles.failureText}>
-              {entry.job?.errorCode === "invalid_output"
-                ? "The AI response did not pass validation. Your capture is safe."
-                : entry.job?.errorCode === "provider_unavailable"
-                  ? `The AI service failed after ${entry.job.attemptCount} of ${entry.job.maxAttempts} attempts.`
-                  : "Processing did not finish. Your capture is safe."}
-            </Text>
-          ) : null}
           <Pressable
             accessibilityRole="button"
-            accessibilityHint="Send this capture for processing, or retry if processing failed."
+            accessibilityHint="Hide this capture from review for 24 hours."
             disabled={busy}
-            onPress={() => void onProcess()}
-            style={[styles.actionButton, styles.processButton, busy && styles.disabled]}
+            onPress={() => void onDefer()}
+            style={[styles.actionButton, styles.deferButton, busy && styles.disabled]}
           >
             <Text style={styles.processText}>
-              {busy
-                ? "Starting..."
-                : entry.reviewStatus === "processing_failed"
-                  ? "Retry processing"
-                  : "Process capture"}
+              {busy ? "Updating..." : "Review tomorrow"}
             </Text>
           </Pressable>
         </View>
+        </>
       ) : (
-        <Text style={styles.processingText}>
-          This capture is already in the processing queue.
-        </Text>
+        <View style={styles.actions}>
+          {entry.reviewStatus === "needs_processing" ||
+          entry.reviewStatus === "processing_failed" ? (
+            <>
+              {entry.reviewStatus === "processing_failed" ? (
+                <Text style={styles.failureText}>
+                  {entry.job?.errorCode === "invalid_output"
+                    ? "The AI response did not pass validation. Your capture is safe."
+                    : entry.job?.errorCode === "provider_unavailable"
+                      ? `The AI service failed after ${entry.job.attemptCount} of ${entry.job.maxAttempts} attempts.`
+                      : "Processing did not finish. Your capture is safe."}
+                </Text>
+              ) : null}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityHint="Send this capture for processing, or retry if processing failed."
+                disabled={busy}
+                onPress={() => void onProcess()}
+                style={[styles.actionButton, styles.processButton, busy && styles.disabled]}
+              >
+                <Text style={styles.processText}>
+                  {busy
+                    ? "Starting..."
+                    : entry.reviewStatus === "processing_failed"
+                      ? "Retry processing"
+                      : "Process capture"}
+                </Text>
+              </Pressable>
+            </>
+          ) : (
+            <Text style={styles.processingText}>
+              This capture is already in the processing queue.
+            </Text>
+          )}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityHint="Hide this capture from review for 24 hours."
+            disabled={busy}
+            onPress={() => void onDefer()}
+            style={[styles.actionButton, styles.deferButton, busy && styles.disabled]}
+          >
+            <Text style={styles.processText}>
+              {busy ? "Updating..." : "Review tomorrow"}
+            </Text>
+          </Pressable>
+        </View>
       )}
-
-      <Pressable
-        accessibilityRole="button"
-        accessibilityHint="Hide this capture from review for 24 hours."
-        disabled={busy}
-        onPress={() => void onDefer()}
-        style={styles.deferButton}
-      >
-        <Text style={styles.textActionLabel}>
-          {busy ? "Updating..." : "Review tomorrow"}
-        </Text>
-      </Pressable>
     </View>
   );
 }
@@ -286,7 +328,7 @@ export default function DailyReviewScreen() {
 
   async function runAction(
     entry: DailyReviewEntry,
-    action: "process" | "defer" | "accept" | "reject",
+    action: "process" | "defer" | "accept" | "reject" | "delete",
     proposal?: ProcessingProposal,
   ) {
     if (!token) return;
@@ -301,6 +343,8 @@ export default function DailyReviewScreen() {
         await rejectProcessingSuggestion(token, entry.suggestion.id);
       } else if (action === "accept" && proposal && entry.suggestion) {
         await acceptProcessingSuggestion(token, entry.suggestion.id, proposal);
+      } else if (action === "delete") {
+        await deleteCapture(token, entry.capture.id);
       }
       await loadQueue(token);
     } catch (actionError) {
@@ -370,6 +414,7 @@ export default function DailyReviewScreen() {
             onDefer={() => runAction(item, "defer")}
             onProcess={() => runAction(item, "process")}
             onReject={() => runAction(item, "reject")}
+            onDelete={() => runAction(item, "delete")}
           />
         )}
         ListFooterComponent={
@@ -413,6 +458,8 @@ const styles = StyleSheet.create({
   bodyText: { color: "#59645C", fontSize: 14, lineHeight: 21, marginTop: 7 },
   card: { backgroundColor: "#FFFFFF", borderColor: "#E5E3DA", borderRadius: 15, borderWidth: 1, marginBottom: 13, padding: 15 },
   priorityRow: { alignItems: "center", flexDirection: "row", justifyContent: "space-between" },
+  deleteButton: { alignItems: "center", height: 38, justifyContent: "center", width: 38 },
+  deleteButtonText: { color: "#A33D32", fontSize: 28, fontWeight: "500", lineHeight: 32 },
   priority: { fontSize: 11, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase" },
   priority_high: { color: "#A84D3A" },
   priority_normal: { color: "#53685A" },
@@ -440,7 +487,7 @@ const styles = StyleSheet.create({
   textAction: { alignItems: "center", justifyContent: "center", minHeight: 44, paddingHorizontal: 9 },
   textActionLabel: { color: "#53685A", fontSize: 13, fontWeight: "700" },
   rejectText: { color: "#A84D3A", fontSize: 13, fontWeight: "700" },
-  deferButton: { alignSelf: "flex-start", justifyContent: "center", minHeight: 44, marginTop: 5, paddingHorizontal: 8 },
+  deferButton: { backgroundColor: "#E8ECE6" },
   processingText: { color: "#53685A", fontSize: 13, lineHeight: 19, marginTop: 10 },
   failureText: { color: "#A33D32", flexBasis: "100%", fontSize: 12, lineHeight: 18 },
   emptyCard: { backgroundColor: "#FFFFFF", borderRadius: 15, padding: 18 },

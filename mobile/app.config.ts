@@ -9,6 +9,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     "expo-router",
     ["expo-secure-store", { configureAndroidBackup: true }],
     "expo-sharing",
+    ["expo-file-system", { enableFileSharing: true }],
     [
       "expo-speech-recognition",
       {

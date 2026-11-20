@@ -1,11 +1,12 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
-  Platform,
+  Keyboard,
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import * as SecureStore from "expo-secure-store";
@@ -15,6 +16,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { ApiError, type BrainDumpItem, listItems } from "../../lib/api";
 import { SESSION_KEY } from "../../lib/session";
 import { BrainDumpHeader } from "../../components/BrainDumpHeader";
+import { tabTypography } from "../../theme/tabTypography";
+import { MAX_SEARCH_QUERY_LENGTH } from "../../lib/limits";
 
 export default function ItemsScreen() {
   const [items, setItems] = useState<BrainDumpItem[]>([]);
@@ -23,9 +26,16 @@ export default function ItemsScreen() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [searchText, setSearchText] = useState("");
+  const [activeSearch, setActiveSearch] = useState("");
+  const activeSearchRef = useRef("");
 
-  const load = useCallback(async (sessionToken: string, before?: string) => {
-    const result = await listItems(sessionToken, before);
+  const load = useCallback(async (
+    sessionToken: string,
+    before?: string,
+    query = activeSearchRef.current,
+  ) => {
+    const result = await listItems(sessionToken, before, query);
     setItems((current) =>
       before ? [...current, ...result.items] : result.items,
     );
@@ -45,7 +55,7 @@ export default function ItemsScreen() {
           if (active) {
             setToken(storedToken);
             setError(null);
-            const result = await listItems(storedToken);
+            const result = await listItems(storedToken, undefined, activeSearchRef.current);
             if (active) {
               setItems(result.items);
               setNextCursor(result.nextCursor);
@@ -91,6 +101,27 @@ export default function ItemsScreen() {
     }
   }
 
+  async function searchSavedItems() {
+    if (!token) return;
+    const query = searchText.trim();
+    activeSearchRef.current = query;
+    setActiveSearch(query);
+    setLoading(true);
+    setError(null);
+    try {
+      await load(token, undefined, query);
+      Keyboard.dismiss();
+    } catch (searchError) {
+      setError(
+        searchError instanceof Error
+          ? searchError.message
+          : "Saved items could not be searched.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function loadMore() {
     if (!token || !nextCursor || loadingMore) return;
     setLoadingMore(true);
@@ -120,20 +151,68 @@ export default function ItemsScreen() {
             <ActivityIndicator accessibilityLabel="Loading saved items" color="#2F4636" />
           ) : (
             <View style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>No saved items yet</Text>
+              <Text style={styles.emptyTitle}>
+                {activeSearch ? "No saved items match" : "No saved items yet"}
+              </Text>
               <Text style={styles.bodyText}>
-                Process a capture and accept its suggestion to save an item here.
+                {activeSearch
+                  ? "Try a different search."
+                  : "Process a capture and accept its suggestion to save an item here."}
               </Text>
             </View>
           )) : undefined
         }
         ListHeaderComponent={
           <View style={styles.titleBlock}>
-            <Text style={styles.eyebrow}>YOUR KNOWLEDGE</Text>
-            <Text accessibilityRole="header" style={styles.title}>Saved items</Text>
-            <Text style={styles.bodyText}>
+            <Text style={tabTypography.eyebrow}>YOUR KNOWLEDGE</Text>
+            <Text accessibilityRole="header" style={tabTypography.title}>Saved items</Text>
+            <Text style={tabTypography.subtitle}>
               Ideas and notes you chose to keep from processed captures.
             </Text>
+            <View style={styles.searchSection}>
+              <Text style={styles.fieldLabel}>Find a saved item</Text>
+              <TextInput
+                accessibilityLabel="Search saved items"
+                maxLength={MAX_SEARCH_QUERY_LENGTH}
+                onChangeText={setSearchText}
+                onSubmitEditing={() => void searchSavedItems()}
+                placeholder="Search saved items"
+                placeholderTextColor="#7E867D"
+                returnKeyType="search"
+                style={styles.searchInput}
+                value={searchText}
+              />
+              <View style={styles.searchActions}>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={loading}
+                  onPress={() => void searchSavedItems()}
+                  style={styles.searchButton}
+                >
+                  <Text style={styles.searchButtonText}>Search</Text>
+                </Pressable>
+                {activeSearch ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={loading}
+                    onPress={() => {
+                      setSearchText("");
+                      activeSearchRef.current = "";
+                      setActiveSearch("");
+                      void refresh();
+                    }}
+                    style={styles.clearSearchButton}
+                  >
+                    <Text style={styles.clearSearchText}>Clear</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+              {activeSearch ? (
+                <Text style={styles.searchCount}>
+                  Search Results · {items.length} saved items
+                </Text>
+              ) : null}
+            </View>
             {error ? (
               <View>
                 <Text accessibilityRole="alert" style={styles.errorText}>
@@ -190,9 +269,21 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#F6F4EE" },
   content: { padding: 20, paddingBottom: 40, flexGrow: 1 },
   titleBlock: { marginBottom: 18 },
-  eyebrow: { color: "#68746B", fontSize: 11, fontWeight: "700", letterSpacing: 1.5 },
-  title: { color: "#24342A", fontFamily: Platform.select({ ios: "Georgia", android: "serif", default: "Georgia" }), fontSize: 36, fontWeight: "600", lineHeight: 43, marginTop: 10, maxWidth: 340 },
   bodyText: { color: "#59645C", fontSize: 14, lineHeight: 21, marginTop: 7 },
+  fieldLabel: {
+    color: "#344238",
+    fontSize: 14,
+    fontWeight: "700",
+    marginBottom: 9,
+  },
+  searchSection: { marginTop: 20 },
+  searchInput: { backgroundColor: "#FFFFFF", borderColor: "#E5E3DA", borderRadius: 12, borderWidth: 1, color: "#24342A", fontSize: 16, minHeight: 48, paddingHorizontal: 13 },
+  searchActions: { alignItems: "center", flexDirection: "row", gap: 14, marginTop: 8 },
+  searchButton: { alignItems: "center", backgroundColor: "#E8ECE6", borderRadius: 11, justifyContent: "center", minHeight: 44, paddingHorizontal: 16 },
+  searchButtonText: { color: "#2F4636", fontSize: 14, fontWeight: "700" },
+  clearSearchButton: { alignItems: "center", justifyContent: "center", minHeight: 44, paddingHorizontal: 8 },
+  clearSearchText: { color: "#53685A", fontSize: 14, fontWeight: "700" },
+  searchCount: { color: "#59645C", fontSize: 13, marginTop: 8 },
   emptyCard: { backgroundColor: "#FFFFFF", borderRadius: 15, padding: 18 },
   emptyTitle: { color: "#24342A", fontSize: 17, fontWeight: "700" },
   itemCard: {

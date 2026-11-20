@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Keyboard,
@@ -10,35 +10,33 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as SecureStore from "expo-secure-store";
 import { router, useFocusEffect } from "expo-router";
+import { Feather } from "@expo/vector-icons";
 
 import {
   acceptProcessingSuggestion,
   ApiError,
   type AgentJob,
-  type BrainDumpItem,
   type Capture,
   type ProcessingProposal,
   type SuggestionDecision,
   deleteCapture,
-  exchangeGoogleIdToken,
   getProcessingJob,
   listCaptures,
-  listItems,
   rejectProcessingSuggestion,
   requestCaptureProcessing,
   updateCapture,
 } from "../../lib/api";
-import {
-  googleSignInConfigured,
-  signInWithGoogle,
-} from "../../lib/google-auth";
+import { useAuthSession } from "../../lib/auth-session";
 import { SESSION_KEY } from "../../lib/session";
 import { BrainDumpHeader } from "../../components/BrainDumpHeader";
+import { tabTypography } from "../../theme/tabTypography";
+import { MAX_CAPTURE_LENGTH, MAX_SEARCH_QUERY_LENGTH } from "../../lib/limits";
 
 const JOB_STATUS_POLL_INITIAL_DELAY_MS = 2_000;
 const JOB_STATUS_POLL_MAX_DELAY_MS = 10_000;
@@ -83,6 +81,7 @@ function CaptureCard({
   onAcceptSuggestion,
   onRejectSuggestion,
 }: CaptureCardProps) {
+  const { height: windowHeight } = useWindowDimensions();
   const [draftState, setDraftState] = useState({
     sourceText: capture.currentText,
     text: capture.currentText,
@@ -308,6 +307,19 @@ function CaptureCard({
         <Text style={styles.captureDate}>
           {new Date(capture.createdAt).toLocaleString()}
         </Text>
+        <View style={styles.captureHeaderActions}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Edit capture"
+            disabled={busy}
+            onPress={() => {
+              setDraftState({ sourceText: capture.currentText, text: capture.currentText });
+              setIsEditingCapture(true);
+            }}
+            style={styles.editCaptureButton}
+          >
+            <Feather color="#53685A" name="edit-2" size={18} />
+          </Pressable>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Delete capture"
@@ -317,6 +329,7 @@ function CaptureCard({
           >
             <Text style={styles.deleteCaptureButtonText}>×</Text>
           </Pressable>
+        </View>
       </View>
       <Text accessibilityLabel="Capture text" style={styles.captureText}>
         {capture.currentText}
@@ -352,13 +365,19 @@ function CaptureCard({
               accessibilityLabel="Edit capture text"
               autoFocus
               editable={!busy}
-              maxLength={10_000}
+              maxLength={MAX_CAPTURE_LENGTH}
               multiline
               onChangeText={(text) =>
                 setDraftState({ sourceText: capture.currentText, text })
               }
               placeholder="Write your thought"
-              style={styles.captureEditInput}
+              style={[
+                styles.captureEditInput,
+                {
+                  maxHeight: Math.min(windowHeight * 0.45, 360),
+                  minHeight: Math.min(180, windowHeight * 0.35),
+                },
+              ]}
               textAlignVertical="top"
               value={draft}
             />
@@ -379,17 +398,6 @@ function CaptureCard({
         </Text>
       )}
       <View style={styles.cardActions}>
-        <Pressable
-          accessibilityRole="button"
-          disabled={busy}
-          onPress={() => {
-            setDraftState({ sourceText: capture.currentText, text: capture.currentText });
-            setIsEditingCapture(true);
-          }}
-          style={styles.linkButton}
-        >
-          <Text style={styles.linkText}>Edit capture</Text>
-        </Pressable>
         {capture.originalText !== capture.currentText && (
           <Pressable
             accessibilityRole="button"
@@ -597,23 +605,19 @@ function CaptureCard({
 }
 
 export default function InboxScreen() {
-  const [sessionToken, setSessionToken] = useState<string | null>(null);
-  const [ready, setReady] = useState(false);
+  const { sessionToken, setSessionToken } = useAuthSession();
   const [busy, setBusy] = useState(false);
   const [captures, setCaptures] = useState<Capture[]>([]);
-  const [searchItems, setSearchItems] = useState<BrainDumpItem[]>([]);
-  const [searchItemsCursor, setSearchItemsCursor] = useState<string | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [searchText, setSearchText] = useState("");
   const [activeSearch, setActiveSearch] = useState("");
+  const activeSearchRef = useRef("");
   const [error, setError] = useState<string | null>(null);
 
   const handleError = useCallback((requestError: unknown) => {
     if (requestError instanceof ApiError && requestError.status === 401) {
       setSessionToken(null);
       setCaptures([]);
-      setSearchItems([]);
-      setSearchItemsCursor(null);
       setError("Your session expired. Sign in again to continue.");
       void SecureStore.deleteItemAsync(SESSION_KEY).catch(() => {
         setError(
@@ -627,7 +631,7 @@ export default function InboxScreen() {
         ? requestError.message
         : "Something went wrong. Try again.",
     );
-  }, []);
+  }, [setSessionToken]);
 
   const loadInbox = useCallback(
     async (token: string, query = "", before?: string) => {
@@ -640,70 +644,12 @@ export default function InboxScreen() {
     [],
   );
 
-  useEffect(() => {
-    let active = true;
-
-    async function restoreSession() {
-      try {
-        const storedToken = await SecureStore.getItemAsync(SESSION_KEY);
-        if (!active) {
-          return;
-        }
-        if (storedToken) {
-          setSessionToken(storedToken);
-        }
-      } catch (restoreError) {
-        if (active) {
-          handleError(restoreError);
-        }
-      } finally {
-        if (active) {
-          setReady(true);
-        }
-      }
-    }
-
-    void restoreSession();
-    return () => {
-      active = false;
-    };
-  }, [handleError, loadInbox]);
-
   useFocusEffect(
     useCallback(() => {
-      if (!ready || !sessionToken) return;
-      void loadInbox(sessionToken, activeSearch).catch(handleError);
-    }, [activeSearch, handleError, loadInbox, ready, sessionToken]),
+      if (!sessionToken) return;
+      void loadInbox(sessionToken, activeSearchRef.current).catch(handleError);
+    }, [handleError, loadInbox, sessionToken]),
   );
-
-  async function handleSignIn() {
-    setBusy(true);
-    setError(null);
-    try {
-      const idToken = await signInWithGoogle();
-      if (!idToken) {
-        return;
-      }
-      const session = await exchangeGoogleIdToken(idToken);
-      await SecureStore.setItemAsync(SESSION_KEY, session.token);
-      setSessionToken(session.token);
-    } catch (signInError) {
-      const isGoogleDeveloperError =
-        typeof signInError === "object" &&
-        signInError !== null &&
-        "code" in signInError &&
-        signInError.code === "DEVELOPER_ERROR";
-      if (isGoogleDeveloperError) {
-        setError(
-          "Google rejected this app’s OAuth setup. Confirm the configured ID is a Web client from the same Google Cloud project as the Android client for com.braindump.mobile.",
-        );
-      } else {
-        handleError(signInError);
-      }
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function handleSearch() {
     if (!sessionToken) {
@@ -713,17 +659,11 @@ export default function InboxScreen() {
     setBusy(true);
     setError(null);
     try {
-      const [captureResults, itemResults] = await Promise.all([
-        listCaptures(sessionToken, query),
-        query
-          ? listItems(sessionToken, undefined, query)
-          : Promise.resolve({ items: [], nextCursor: null }),
-      ]);
+      const captureResults = await listCaptures(sessionToken, query);
       setCaptures(captureResults.captures);
       setNextCursor(captureResults.nextCursor);
-      setSearchItems(itemResults.items);
-      setSearchItemsCursor(itemResults.nextCursor);
       setActiveSearch(query);
+      activeSearchRef.current = query;
       Keyboard.dismiss();
     } catch (searchError) {
       handleError(searchError);
@@ -740,27 +680,6 @@ export default function InboxScreen() {
     setError(null);
     try {
       await loadInbox(sessionToken, activeSearch, nextCursor);
-    } catch (loadError) {
-      handleError(loadError);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleLoadMoreSearchItems() {
-    if (!sessionToken || !searchItemsCursor || !activeSearch) {
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await listItems(
-        sessionToken,
-        searchItemsCursor,
-        activeSearch,
-      );
-      setSearchItems((current) => [...current, ...result.items]);
-      setSearchItemsCursor(result.nextCursor);
     } catch (loadError) {
       handleError(loadError);
     } finally {
@@ -842,81 +761,7 @@ export default function InboxScreen() {
     }
   }
 
-  if (!ready) {
-    return (
-      <SafeAreaView edges={["top", "left", "right"]} style={styles.screen}>
-        <View style={styles.loadingPanel}>
-          <Text style={styles.eyebrow}>BRAINDUMP</Text>
-          <Text style={styles.loadingText}>Opening your private inbox...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  if (!sessionToken) {
-    return (
-      <SafeAreaView edges={["top", "left", "right"]} style={styles.screen}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          style={styles.flex}
-        >
-          <View style={styles.signInPanel}>
-            <View style={styles.brandMark}>
-              <Text style={styles.brandMarkText}>b</Text>
-            </View>
-            <Text style={styles.eyebrow}>CAPTURE · CLARIFY · ACT</Text>
-            <Text style={styles.title}>Make room to think.</Text>
-            <Text style={styles.intro}>
-              A private place for the ideas, reminders, and loose ends on your
-              mind. Capture now; decide what to do later.
-            </Text>
-            {error && (
-              <Text accessibilityRole="alert" style={styles.errorText}>
-                {error}
-              </Text>
-            )}
-            {error && (
-              <Pressable
-                accessibilityRole="button"
-                disabled={busy}
-                onPress={() => void handleSignIn()}
-                style={styles.linkButton}
-              >
-                <Text style={styles.linkText}>Try signing in again</Text>
-              </Pressable>
-            )}
-            <Pressable
-              accessibilityRole="button"
-              disabled={busy || !googleSignInConfigured}
-              onPress={() => void handleSignIn()}
-              style={({ pressed }) => [
-                styles.primaryButton,
-                (busy || !googleSignInConfigured) && styles.disabledButton,
-                pressed && styles.pressedButton,
-              ]}
-            >
-              <Text style={styles.primaryButtonText}>
-                {busy
-                  ? "Connecting..."
-                  : googleSignInConfigured
-                    ? "Continue with Google"
-                    : "Configure Google sign-in"}
-              </Text>
-            </Pressable>
-            {!googleSignInConfigured && (
-              <Text style={styles.errorText}>
-                Set the Google client IDs in mobile/.env.local to sign in.
-              </Text>
-            )}
-            <Text style={styles.privacyNote}>
-              Sign-in only shares your basic Google profile and email. BrainDump
-              does not request access to Drive.
-            </Text>
-          </View>
-        </KeyboardAvoidingView>
-      </SafeAreaView>
-    );
-  }
+  if (!sessionToken) return null;
 
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={styles.screen}>
@@ -931,28 +776,20 @@ export default function InboxScreen() {
           keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
           keyboardShouldPersistTaps="handled"
         >
-          <Text style={styles.eyebrow}>YOUR PRIVATE INBOX</Text>
-          <Text accessibilityRole="header" style={styles.title}>Get it out of your head.</Text>
-          <Text style={styles.intro}>
+          <Text style={tabTypography.eyebrow}>YOUR PRIVATE INBOX</Text>
+          <Text accessibilityRole="header" style={tabTypography.title}>Get it out of your head.</Text>
+          <Text style={tabTypography.subtitle}>
             Capture first. Decide what to do with it later.
           </Text>
-          <Pressable
-            accessibilityRole="button"
-                  onPress={() => router.push("/review")}
-            style={styles.reviewNavButton}
-          >
-            <Text style={styles.reviewNavText}>Open daily review</Text>
-          </Pressable>
-
           <View style={styles.searchSection}>
             <Text style={styles.fieldLabel}>Find a thought</Text>
             <TextInput
               accessibilityLabel="Search your captures"
               editable={!busy}
-              maxLength={200}
+              maxLength={MAX_SEARCH_QUERY_LENGTH}
               onChangeText={setSearchText}
               onSubmitEditing={() => void handleSearch()}
-              placeholder="Search captures and saved items"
+              placeholder="Search captures"
               placeholderTextColor="#7E867D"
               returnKeyType="search"
               style={styles.searchInput}
@@ -974,8 +811,7 @@ export default function InboxScreen() {
                   onPress={() => {
                     setSearchText("");
                     setActiveSearch("");
-                    setSearchItems([]);
-                    setSearchItemsCursor(null);
+                    activeSearchRef.current = "";
                     setBusy(true);
                     setError(null);
                     void loadInbox(sessionToken)
@@ -1014,9 +850,8 @@ export default function InboxScreen() {
 
           {activeSearch ? (
             <View style={styles.searchResultsHeader}>
-              <Text style={styles.sectionTitle}>Search Results</Text>
-              <Text style={styles.countText}>
-                {captures.length} captures · {searchItems.length} saved items
+              <Text style={styles.searchResultsCount}>
+                Search Results · {captures.length} captures
               </Text>
             </View>
           ) : (
@@ -1029,9 +864,7 @@ export default function InboxScreen() {
           {captures.length === 0 ? (
             <Text style={styles.emptyState}>
               {activeSearch
-                ? searchItems.length
-                  ? "No captures match. Saved item results are below."
-                  : "No captures or saved items match that search."
+                ? "No captures match that search."
                 : "No captures yet. Use the microphone button to add a thought."}
             </Text>
           ) : (
@@ -1047,53 +880,6 @@ export default function InboxScreen() {
                 onRejectSuggestion={handleRejectSuggestion}
               />
             ))
-          )}
-
-          {activeSearch && searchItems.length > 0 && (
-            <>
-              <View style={styles.inboxHeader}>
-                <Text style={styles.sectionTitle}>Saved items</Text>
-                <Text style={styles.countText}>{searchItems.length}</Text>
-              </View>
-              {searchItems.map((item) => (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`Open ${item.title}, ${item.type}`}
-                  key={item.id}
-                  onPress={() =>
-                    router.push({
-                      pathname: "/items/[itemId]",
-                      params: { itemId: item.id },
-                    })
-                  }
-                  style={({ pressed }) => [
-                    styles.searchItemCard,
-                    pressed && styles.pressedButton,
-                  ]}
-                >
-                  <Text style={styles.suggestionType}>{item.type}</Text>
-                  <Text style={styles.suggestionTitle}>{item.title}</Text>
-                  <Text style={styles.suggestionSummary}>{item.summary}</Text>
-                  {item.labels.length > 0 && (
-                    <Text style={styles.suggestionDetail}>
-                      Labels: {item.labels.join(", ")}
-                    </Text>
-                  )}
-                </Pressable>
-              ))}
-              {searchItemsCursor && (
-                <Pressable
-                  accessibilityRole="button"
-                  disabled={busy}
-                  onPress={() => void handleLoadMoreSearchItems()}
-                  style={styles.loadMoreButton}
-                >
-                  <Text style={styles.secondaryButtonText}>
-                    {busy ? "Loading..." : "Load more saved items"}
-                  </Text>
-                </Pressable>
-              )}
-            </>
           )}
 
           {nextCursor && (
@@ -1122,79 +908,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#F6F4EE",
   },
-  loadingPanel: {
-    flex: 1,
-    justifyContent: "center",
-    paddingHorizontal: 28,
-  },
-  loadingText: {
-    color: "#354139",
-    fontSize: 17,
-    marginTop: 16,
-  },
-  signInPanel: {
-    flex: 1,
-    justifyContent: "center",
-    paddingHorizontal: 28,
-    paddingBottom: 36,
-  },
-  brandMark: {
-    alignItems: "center",
-    backgroundColor: "#D66B4D",
-    borderRadius: 18,
-    height: 56,
-    justifyContent: "center",
-    marginBottom: 30,
-    width: 56,
-  },
-  brandMarkText: {
-    color: "#FFFFFF",
-    fontFamily: Platform.select({ ios: "Georgia", android: "serif", default: "Georgia" }),
-    fontSize: 36,
-    fontWeight: "700",
-    lineHeight: 40,
-  },
-  eyebrow: {
-    color: "#68746B",
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 1.6,
-  },
-  title: {
-    color: "#24342A",
-    fontFamily: Platform.select({ ios: "Georgia", android: "serif" }),
-    fontSize: 36,
-    fontWeight: "600",
-    lineHeight: 43,
-    marginTop: 10,
-    maxWidth: 340,
-  },
-  intro: {
-    color: "#59645C",
-    fontSize: 16,
-    lineHeight: 24,
-    marginTop: 12,
-    maxWidth: 420,
-  },
-  reviewNavButton: {
-    alignSelf: "flex-start",
-    backgroundColor: "#E8ECE6",
-    borderRadius: 11,
-    justifyContent: "center",
-    marginTop: 14,
-            minHeight: 44,
-    paddingHorizontal: 14,
-  },
-  reviewNavText: { color: "#2F4636", fontSize: 13, fontWeight: "700" },
-  primaryButton: {
-    alignItems: "center",
-    backgroundColor: "#243B2D",
-    borderRadius: 14,
-    justifyContent: "center",
-    minHeight: 54,
-    paddingHorizontal: 20,
-    marginTop: 20,
-  },
   primaryButtonText: {
     color: "#FFFFFF",
     fontSize: 16,
@@ -1205,12 +918,6 @@ const styles = StyleSheet.create({
   },
   pressedButton: {
     opacity: 0.78,
-  },
-  privacyNote: {
-    color: "#6A746B",
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 20,
   },
   content: {
     paddingHorizontal: 20,
@@ -1295,10 +1002,13 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   searchResultsHeader: {
-    alignItems: "flex-start",
-    flexDirection: "column",
     marginBottom: 12,
     marginTop: 30,
+  },
+  searchResultsCount: {
+    color: "#59645C",
+    fontSize: 13,
+    marginTop: 8,
   },
   sectionTitle: {
     color: "#24342A",
@@ -1336,26 +1046,18 @@ const styles = StyleSheet.create({
   },
   deleteCaptureButton: {
     alignItems: "center",
-    backgroundColor: "#FFF1EE",
-    borderRadius: 15,
-    height: 30,
+    height: 38,
     justifyContent: "center",
-    width: 30,
+    width: 38,
   },
   deleteCaptureButtonText: {
     color: "#A33D32",
-    fontSize: 25,
-    fontWeight: "400",
-    lineHeight: 29,
+    fontSize: 28,
+    fontWeight: "500",
+    lineHeight: 32,
   },
-  searchItemCard: {
-    backgroundColor: "#FFFFFF",
-    borderColor: "#E5E3DA",
-    borderRadius: 16,
-    borderWidth: 1,
-    marginBottom: 12,
-    padding: 15,
-  },
+  captureHeaderActions: { alignItems: "center", flexDirection: "row", gap: 2 },
+  editCaptureButton: { alignItems: "center", height: 38, justifyContent: "center", width: 38 },
   captureDate: {
     color: "#768078",
     fontSize: 11,
@@ -1372,14 +1074,13 @@ const styles = StyleSheet.create({
   captureEditInput: {
     backgroundColor: "#FFFFFF",
     borderColor: "#E5E3DA",
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
     color: "#28372D",
-    flex: 1,
     fontSize: 16,
     lineHeight: 24,
-    marginTop: 16,
-    padding: 14,
+    marginVertical: 18,
+    padding: 15,
   },
   captureEditSave: {
     alignItems: "center",

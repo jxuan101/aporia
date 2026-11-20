@@ -1,16 +1,17 @@
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { BrainDumpHeader } from "../../components/BrainDumpHeader";
+import { tabTypography } from "../../theme/tabTypography";
 
 export default function HomeScreen() {
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={styles.screen}>
       <BrainDumpHeader />
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.eyebrow}>HOME</Text>
-        <Text accessibilityRole="header" style={styles.title}>Make room to think.</Text>
-        <Text style={styles.body}>
+        <Text style={tabTypography.eyebrow}>HOME</Text>
+        <Text accessibilityRole="header" style={tabTypography.title}>Make room to think.</Text>
+        <Text style={tabTypography.subtitle}>
           Capture what is on your mind, then return when you are ready to organize it.
         </Text>
         <Pressable
@@ -20,13 +21,6 @@ export default function HomeScreen() {
         >
           <Text style={styles.primaryText}>Capture a thought</Text>
         </Pressable>
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Your private inbox</Text>
-          <Text style={styles.body}>Review recent captures and choose what to process.</Text>
-          <Pressable accessibilityRole="button" onPress={() => router.push("/")} style={styles.action}>
-            <Text style={styles.actionText}>Open inbox</Text>
-          </Pressable>
-        </View>
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Daily review</Text>
           <Text style={styles.body}>Pick up unfinished processing and suggestions awaiting a decision.</Text>
@@ -42,8 +36,6 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   screen: { backgroundColor: "#F6F4EE", flex: 1 },
   content: { padding: 20, paddingBottom: 30 },
-  eyebrow: { color: "#68746B", fontSize: 11, fontWeight: "700", letterSpacing: 1.6 },
-  title: { color: "#24342A", fontFamily: Platform.select({ ios: "Georgia", android: "serif", default: "Georgia" }), fontSize: 36, fontWeight: "600", lineHeight: 43, marginTop: 10, maxWidth: 340 },
   body: { color: "#59645C", fontSize: 15, lineHeight: 23, marginTop: 8 },
   primaryButton: { alignItems: "center", backgroundColor: "#2F4636", borderRadius: 14, justifyContent: "center", minHeight: 54, marginTop: 26 },
   primaryText: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },

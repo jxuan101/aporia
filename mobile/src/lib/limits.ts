@@ -1,0 +1,2 @@
+export const MAX_CAPTURE_LENGTH = 10_000;
+export const MAX_SEARCH_QUERY_LENGTH = 200;

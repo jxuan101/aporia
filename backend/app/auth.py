@@ -11,6 +11,11 @@ from psycopg import Connection
 from app.config import GOOGLE_WEB_CLIENT_ID
 from app.database import get_connection
 from app.errors import ApiError
+from app.rate_limit import (
+    GOOGLE_SIGN_IN_LIMITS,
+    USER_REQUEST_LIMITS,
+    enforce_rate_limit,
+)
 from app.validation import bearer_token, read_json_body
 
 router = APIRouter(prefix="/api/v1/auth")
@@ -59,6 +64,13 @@ async def exchange_google_token(
     request: Request,
     connection: Annotated[Connection, Depends(get_connection)],
 ) -> dict[str, object]:
+    client_ip = request.client.host if request.client else "unknown"
+    enforce_rate_limit(
+        connection,
+        scope="google-sign-in-ip",
+        identity=client_ip,
+        limits=GOOGLE_SIGN_IN_LIMITS,
+    )
     body = await read_json_body(request, max_bytes=16_000)
     if (
         not isinstance(body, dict)
@@ -155,6 +167,17 @@ def revoke_session(
     token = bearer_token(request.headers.get("authorization"))
     if not token:
         raise ApiError("Authentication required.", 401)
+    session = connection.execute(
+        "SELECT user_id FROM sessions WHERE session_token = %s AND expires > now()",
+        (token,),
+    ).fetchone()
+    if session:
+        enforce_rate_limit(
+            connection,
+            scope="user-api",
+            identity=session["user_id"],
+            limits=USER_REQUEST_LIMITS,
+        )
     connection.execute("DELETE FROM sessions WHERE session_token = %s", (token,))
 
 
@@ -169,4 +192,12 @@ def current_user_id(
         "SELECT user_id FROM sessions WHERE session_token = %s AND expires > now()",
         (token,),
     ).fetchone()
-    return row["user_id"] if row else None
+    if row is None:
+        return None
+    enforce_rate_limit(
+        connection,
+        scope="user-api",
+        identity=row["user_id"],
+        limits=USER_REQUEST_LIMITS,
+    )
+    return row["user_id"]

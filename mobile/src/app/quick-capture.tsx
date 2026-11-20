@@ -1,13 +1,15 @@
 import { useState } from "react";
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import { router, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { createCapture } from "../lib/api";
 import { SESSION_KEY } from "../lib/session";
+import { MAX_CAPTURE_LENGTH } from "../lib/limits";
 
 export default function QuickCaptureScreen() {
+  const { height: windowHeight } = useWindowDimensions();
   const { transcript } = useLocalSearchParams<{ transcript?: string }>();
   const [text, setText] = useState(() =>
     typeof transcript === "string" ? transcript : "",
@@ -50,11 +52,17 @@ export default function QuickCaptureScreen() {
             accessibilityLabel="Capture text"
             autoFocus
             editable={!busy}
-            maxLength={10_000}
+            maxLength={MAX_CAPTURE_LENGTH}
             multiline
             onChangeText={setText}
             placeholder="What is on your mind?"
-            style={styles.input}
+            style={[
+              styles.input,
+              {
+                maxHeight: Math.min(windowHeight * 0.45, 360),
+                minHeight: Math.min(180, windowHeight * 0.35),
+              },
+            ]}
             textAlignVertical="top"
             value={text}
           />
@@ -77,7 +85,7 @@ const styles = StyleSheet.create({
   closeButton: { alignItems: "center", justifyContent: "center", minHeight: 44, paddingHorizontal: 8 },
   closeText: { color: "#53685A", fontSize: 14, fontWeight: "700" },
   description: { color: "#59645C", fontSize: 14, lineHeight: 21, marginTop: 8 },
-  input: { backgroundColor: "#FFFFFF", borderColor: "#E5E3DA", borderRadius: 16, borderWidth: 1, color: "#28372D", fontSize: 16, lineHeight: 24, marginVertical: 18, minHeight: 180, padding: 15 },
+  input: { backgroundColor: "#FFFFFF", borderColor: "#E5E3DA", borderRadius: 16, borderWidth: 1, color: "#28372D", fontSize: 16, lineHeight: 24, marginVertical: 18, padding: 15 },
   saveButton: { alignItems: "center", backgroundColor: "#2F4636", borderRadius: 12, justifyContent: "center", marginTop: 20, minHeight: 54 },
   saveText: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
   disabled: { opacity: 0.5 },

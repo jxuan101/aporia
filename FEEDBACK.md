@@ -36,3 +36,21 @@ Things to fix:
 - [x] Match top heading styles and placement across tabs, and label the Home tab heading.
 - [x] Label the Daily Review back button “Back”.
 - [x] Keep tab screens mounted between switches and smooth the slide transition.
+- [x] When logged out, the tab menu is hidden and only the login page is accessible.
+- [x] Added per-user per-second, per-minute, and per-hour API limits and per-IP sign-in limits; retained the separate daily AI cap.
+- [x] Exporting data downloads a JSON file to device storage.
+- [x] Removed the unnecessary private inbox reference from the Home tab.
+- [x] Unified tab eyebrow, title, and subtitle typography.
+- [x] Matched the BrainDump header logo colors and letter styling to the login page.
+- [x] Changed tab transitions to fade and removed tab swiping.
+- [x] Added a confirmed delete X to Daily Review.
+- [x] Removed the Open daily review action from Inbox.
+- [x] Split search between captures in Inbox and saved items in Saved.
+- [x] Search button in saved item tab is not vertically aligned in its container.
+- [x] The 'X' buttons in the inbox tab should have the same styling as the ones in daily review page.
+- [x] The "Review tomorrow" button in daily review page should have the same styling as "Process capture" and also be positioned next to it.
+- [x] The "Edit capture" button in the inbox page should be changed to just an edit icon button positioned to the left of the 'X' button.
+- [x] The Clear button in the saved items tab isn't vertically aligned in the middle of the Search button.
+- [x] In the inbox tab, I want the search results text and item count to be the same styling as the one in saved items.
+- [x] When editing a capture, the text box is stretched too big, it should be sized approximately the same as the one in quick capture.
+- [x] Should there be a character limit for a capture and also for searching? Also, set a max height for the textbox so it doesn't grow beyond the viewport.

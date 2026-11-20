@@ -5,7 +5,7 @@ import { StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { HoldToCaptureButton } from "../../components/HoldToCaptureButton";
-import { SwipeBetweenTabs } from "../../components/SwipeBetweenTabs";
+import { FadeBetweenTabs } from "../../components/FadeBetweenTabs";
 
 type TabName = "home" | "inbox" | "saved" | "profile";
 
@@ -59,9 +59,9 @@ function BottomBar() {
 export default function TabLayout() {
   return (
     <Tabs>
-      <SwipeBetweenTabs>
+      <FadeBetweenTabs>
         <TabSlot detachInactiveScreens={false} style={styles.slot} />
-      </SwipeBetweenTabs>
+      </FadeBetweenTabs>
       <BottomBar />
       <TabList style={styles.routeList}>
         <TabTrigger name="home" href="/home" />

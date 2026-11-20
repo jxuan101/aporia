@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from "react-native";
+import { Platform, StyleSheet, Text, View } from "react-native";
 
 export function BrainDumpHeader() {
   return (
@@ -23,12 +23,12 @@ const styles = StyleSheet.create({
   },
   mark: {
     alignItems: "center",
-    backgroundColor: "#2F4636",
+    backgroundColor: "#D66B4D",
     borderRadius: 12,
     height: 34,
     justifyContent: "center",
     width: 34,
   },
-  markText: { color: "#FFFFFF", fontFamily: "Georgia", fontSize: 24, lineHeight: 28 },
+  markText: { color: "#FFFFFF", fontFamily: Platform.select({ ios: "Georgia", android: "serif", default: "Georgia" }), fontSize: 24, fontWeight: "700", lineHeight: 28 },
   name: { color: "#24342A", fontFamily: "Georgia", fontSize: 20, fontWeight: "700" },
 });

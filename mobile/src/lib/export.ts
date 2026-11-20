@@ -1,20 +1,23 @@
-import { File, Paths } from "expo-file-system";
-import * as Sharing from "expo-sharing";
+import { Directory, File, Paths } from "expo-file-system";
+import { Platform } from "react-native";
 
-export async function shareCaptureExport(exportData: unknown): Promise<void> {
-  if (!(await Sharing.isAvailableAsync())) {
-    throw new Error("File sharing is not available on this device.");
+export async function downloadCaptureExport(exportData: unknown): Promise<string> {
+  const name = `braindump-export-${new Date().toISOString().slice(0, 10)}-${Date.now()}.json`;
+  const contents = JSON.stringify(exportData, null, 2);
+
+  if (Platform.OS === "android") {
+    const directory = await Directory.pickDirectoryAsync();
+    const file = directory.createFile(name, "application/json");
+    await file.write(contents);
+    return name;
   }
 
-  const file = new File(
-    Paths.cache,
-    `braindump-export-${Date.now()}.json`,
-  );
-  file.create();
-  await file.write(JSON.stringify(exportData, null, 2));
-  await Sharing.shareAsync(file.uri, {
-    dialogTitle: "Export BrainDump captures",
-    mimeType: "application/json",
-    UTI: "public.json",
-  });
+  if (Platform.OS !== "ios") {
+    throw new Error("Downloads are not available on this platform.");
+  }
+
+  const file = new File(Paths.document, name);
+  file.create({ overwrite: true });
+  await file.write(contents);
+  return name;
 }
