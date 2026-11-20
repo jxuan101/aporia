@@ -10,6 +10,7 @@ from uuid import UUID
 import psycopg
 from psycopg.types.json import Jsonb
 
+from app.config import AI_DAILY_PROCESSING_LIMIT
 from app.model_adapter import (
     ModelAdapter,
     ModelAdapterError,
@@ -17,9 +18,10 @@ from app.model_adapter import (
     ModelProposalResult,
     ModelTemporarilyUnavailable,
 )
+from app.related_items import RelatedItemCandidate, find_related_item_candidates
 
 MAX_ATTEMPTS = 3
-MAX_DAILY_PROCESSING_REQUESTS_PER_USER = 20
+MAX_DAILY_PROCESSING_REQUESTS_PER_USER = AI_DAILY_PROCESSING_LIMIT
 LEASE_SECONDS = 120
 POLL_INTERVAL_SECONDS = 1
 logger = logging.getLogger("braindump.agent_jobs")
@@ -37,6 +39,7 @@ class ClaimedJob:
     capture_revision: Any
     source_text: str
     attempt_count: int
+    related_items: list[RelatedItemCandidate]
 
 
 def _consume_daily_processing_request(
@@ -82,7 +85,11 @@ def enqueue_capture_job(
     job = connection.execute(
         """
         SELECT j.id, j.capture_id, j.status, j.attempt_count, j.error_code,
-            j.created_at, j.updated_at, s.status AS suggestion_status
+            j.created_at, j.updated_at, s.status AS suggestion_status,
+            EXISTS (
+                SELECT 1 FROM items i
+                WHERE i.user_id = j.user_id AND i.capture_id = j.capture_id
+            ) AS has_saved_item
         FROM agent_jobs j
         LEFT JOIN agent_suggestions s ON s.job_id = j.id AND s.user_id = j.user_id
         WHERE j.user_id = %s AND j.capture_id = %s AND j.capture_revision = %s
@@ -92,7 +99,14 @@ def enqueue_capture_job(
         (user_id, capture_id, capture["updated_at"]),
     ).fetchone()
     if job is None or (
-        job["status"] == "succeeded" and job["suggestion_status"] == "rejected"
+        job["status"] == "succeeded"
+        and (
+            job["suggestion_status"] == "rejected"
+            or (
+                job["suggestion_status"] == "accepted"
+                and not job["has_saved_item"]
+            )
+        )
     ):
         _consume_daily_processing_request(connection, user_id=user_id)
         job = connection.execute(
@@ -136,7 +150,7 @@ def get_job_for_user(
     user_id: str,
     job_id: UUID,
 ) -> dict[str, Any] | None:
-    return connection.execute(
+    row = connection.execute(
         """
         SELECT j.id, j.capture_id, j.status, j.attempt_count, j.max_attempts,
             j.error_code,
@@ -156,6 +170,45 @@ def get_job_for_user(
         """,
         (job_id, user_id),
     ).fetchone()
+    if row is None:
+        return None
+
+    payload = (
+        row["accepted_payload_json"]
+        if row["suggestion_status"] == "accepted"
+        else row["payload_json"]
+    )
+    related_ids = payload.get("related_item_ids", []) if payload else []
+    parsed_ids: list[UUID] = []
+    if isinstance(related_ids, list):
+        for related_id in related_ids:
+            try:
+                parsed_ids.append(UUID(str(related_id)))
+            except (ValueError, TypeError):
+                continue
+    related_rows = (
+        connection.execute(
+            """
+            SELECT id, item_type, title, summary
+            FROM items WHERE user_id = %s AND id = ANY(%s)
+            """,
+            (user_id, parsed_ids),
+        ).fetchall()
+        if parsed_ids
+        else []
+    )
+    related_by_id = {item["id"]: item for item in related_rows}
+    row["related_items"] = [
+        {
+            "id": str(related_by_id[item_id]["id"]),
+            "type": related_by_id[item_id]["item_type"],
+            "title": related_by_id[item_id]["title"],
+            "summary": related_by_id[item_id]["summary"],
+        }
+        for item_id in parsed_ids
+        if item_id in related_by_id
+    ]
+    return row
 
 
 def claim_next_job(connection: psycopg.Connection) -> ClaimedJob | None:
@@ -207,6 +260,12 @@ def claim_next_job(connection: psycopg.Connection) -> ClaimedJob | None:
     ).fetchone()
     if claimed is None:
         return None
+    related_items = find_related_item_candidates(
+        connection,
+        user_id=claimed["user_id"],
+        capture_id=claimed["capture_id"],
+        capture_text=claimed["current_text"],
+    )
     return ClaimedJob(
         id=claimed["id"],
         user_id=claimed["user_id"],
@@ -214,6 +273,7 @@ def claim_next_job(connection: psycopg.Connection) -> ClaimedJob | None:
         capture_revision=claimed["capture_revision"],
         source_text=claimed["current_text"],
         attempt_count=claimed["attempt_count"],
+        related_items=related_items,
     )
 
 
@@ -313,7 +373,11 @@ def process_next_job(
     )
 
     try:
-        result = adapter.propose_capture(job.source_text)
+        contextual_proposal = getattr(adapter, "propose_capture_with_context", None)
+        if callable(contextual_proposal):
+            result = contextual_proposal(job.source_text, job.related_items)
+        else:
+            result = adapter.propose_capture(job.source_text)
     except ModelTemporarilyUnavailable as error:
         with connection_factory() as connection:
             _record_failure(

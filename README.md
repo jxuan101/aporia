@@ -66,19 +66,19 @@ Capture creation returns possible duplicate captures after the new capture is sa
 
 Apply migrations after updating the backend, then run the API and a worker in separate terminals. Set `GROQ_API_KEY` and `GROQ_MODEL` in the root `.env.local` before starting the worker. Processing starts only when an authenticated client explicitly calls `POST /api/v1/captures/{capture_id}/process`; if model access is not configured, the API returns `503 provider_unavailable` without enqueueing a job. The mobile app polls for job state with backoff and pauses automatic checks after two minutes if the worker does not finish. It lets the user review the proposal, edit its title and summary, then accept or reject it. Acceptance creates one user-owned item; rejection leaves the original capture intact. Editing a capture makes its pending proposals stale. Saving a capture never waits for or depends on Groq.
 
-Processing errors use stable `errorCode` values such as `invalid_output`, `provider_unavailable`, `provider_rejected`, `processing_error`, and `capture_changed`. Worker logs include the provider HTTP status, a broad reason category, and sanitized provider error type/code for diagnosing rejected calls; response bodies, prompts, and captures are not logged. Retryable provider outages retry up to three times; the mobile app explains terminal failure states while preserving the capture. Each user can start or explicitly retry up to 20 processing requests per UTC day. Repeating a request for an already active or completed accepted capture revision is idempotent and does not consume another request. Rejecting a suggestion allows a new job for the same capture revision. Exceeding the limit returns HTTP 429 with code `daily_processing_limit`; the counter is stored per user and UTC date.
+Processing errors use stable `errorCode` values such as `invalid_output`, `provider_unavailable`, `provider_rejected`, `processing_error`, and `capture_changed`. Worker logs include the provider HTTP status, a broad reason category, and sanitized provider error type/code for diagnosing rejected calls; response bodies, prompts, and captures are not logged. Retryable provider outages retry up to three times; the mobile app explains terminal failure states while preserving the capture. Each user can start or explicitly retry up to 20 processing requests per UTC day by default. For a development server only, set `APP_ENV=development` and `AI_DAILY_PROCESSING_LIMIT` (for example, `100`) in the root `.env.local`; the setting is shared by the API and worker. `APP_ENV` defaults to `production`, and the daily limit cannot exceed 20 in any other environment. Repeating a request for an already active or completed accepted capture revision is idempotent and does not consume another request. Rejecting a suggestion allows a new job for the same capture revision. If its saved item is deleted while the capture is kept, requesting processing creates a new job for that revision. Exceeding the limit returns HTTP 429 with code `daily_processing_limit`; the counter is stored per user and UTC date.
 
 Authenticated API requests are limited per user to 10 per second, 120 per minute, and 1,500 per hour. Google sign-in token exchanges are limited per connecting IP to 3 per second, 10 per minute, and 40 per hour. Windows start with the first request and are persisted in PostgreSQL, so counters are shared across API workers; stored rate-limit identities are SHA-256 hashes. These limits supplement the separate 20-per-day AI processing cap. When deployed behind a reverse proxy, configure Uvicorn's trusted proxy handling so `request.client.host` represents the client address and cannot be supplied by an untrusted peer.
 
 The mobile daily review screen reads `GET /api/v1/review/daily`, which paginates captures that need processing, have a failed job, are processing, or have a pending suggestion. Each entry includes a status-based priority and a factual explanation. Pending suggestions can be edited, accepted, or rejected there; unfinished captures can be processed or retried. `POST /api/v1/review/captures/{capture_id}/defer` snoozes a capture for 24 hours. Deferral applies to the current capture revision, so editing the capture puts the new revision back in the queue.
 
-Review decisions use `POST /api/v1/agent/suggestions/{suggestion_id}/accept` with `{"proposal": ...}` or `POST /api/v1/agent/suggestions/{suggestion_id}/reject`. Acceptance revalidates the full versioned schema and task evidence against the current capture. Model-proposed related IDs are cleared; links require a separate user action.
+Review decisions use `POST /api/v1/agent/suggestions/{suggestion_id}/accept` with `{"proposal": ...}` or `POST /api/v1/agent/suggestions/{suggestion_id}/reject`. Acceptance revalidates the full versioned schema and task evidence against the current capture. The model does not ask clarification questions; broad ideas receive optional exploratory next steps when the capture supports them. The model receives at most five keyword-matched saved-item candidates from the same user (titles and bounded summaries, not source captures). It may propose links only to those candidates. The user explicitly adds or removes each proposed link before accepting; acceptance checks ownership and creates the selected relationships transactionally.
 
 Accepted items are available from `GET /api/v1/items` and `GET /api/v1/items/{item_id}`. Both routes scope results to the authenticated user. The mobile app includes a paginated saved-items list and a read-only detail view with the original capture for context. Deleting a saved item keeps its capture by default; the user can separately confirm deleting that capture and directly linked items with their captures. Accepting a new proposal for an edited capture updates its existing saved item rather than creating a duplicate.
 
 Capture search uses `GET /api/v1/captures?q=...`; saved-item search uses `GET /api/v1/items?q=...`. Queries use PostgreSQL's English full-text dictionary with web-style phrase and OR syntax. Both search paths retain user scoping and cursor pagination. The Inbox tab searches captures; the Saved tab searches saved items.
 
-Related-item candidates are generated from shared meaningful words in each item's title, summary, labels, candidate tasks, and source capture. Candidates need at least two shared non-stopwords; the API scores the 500 most recent items and returns up to 10 matches. The detail screen shows matching terms so users can decide whether to link the items. `GET /api/v1/items/{item_id}/related` returns existing links and candidates; `POST` and `DELETE /api/v1/items/{item_id}/related/{related_item_id}` add or remove a user-approved link. Links are symmetric and scoped to one user. Model-proposed IDs never create links; review acceptance clears them, and linking always requires a separate user action.
+Related-item candidates for processing use shared meaningful words in saved-item titles, summaries, labels, and candidate tasks; source captures are not loaded as model context. Candidates need at least two shared non-stopwords; the worker scans up to 500 recent saved items and gives the model at most five candidates. The item detail screen also shows matching terms from its existing candidate search. `GET /api/v1/items/{item_id}/related` returns existing links and candidates; `POST` and `DELETE` `/api/v1/items/{item_id}/related/{related_item_id}` add or remove a user-approved link. Links are symmetric and scoped to one user. Processing suggestions can link only IDs from their candidate set, after the user selects each link and accepts the suggestion.
 
 Suggested next steps on saved items can be checked off individually. Completion state is stored per saved item, scoped through the owning user, and reset when a new AI proposal replaces that item's steps. Apply database migration `0008_item_task_completion` before using the feature.
 
@@ -156,7 +156,7 @@ A person with many ideas, responsibilities, and bits of information who wants to
 - **Duplicate detection:** Warn when a new capture resembles an existing item.
 - **Recurring themes:** Surface repeated topics in a private, user-controlled insights view.
 - **Review queue:** Let users process several suggestions in one focused session.
-- **Contextual follow-up:** Ask a short clarification when an item is too ambiguous to organize confidently.
+- **Contextual follow-up:** Suggest low-commitment exploration steps for broad ideas. Clarification questions are deferred until the app supports answering and reprocessing them.
 
 ### Later / optional
 
@@ -220,7 +220,7 @@ The agent is a constrained workflow, not an unrestricted autonomous assistant.
 - Suggest a classification, title, summary, labels, and links.
 - Extract candidate tasks and dates.
 - Suggest priorities with a brief explanation.
-- Ask for clarification when confidence is low.
+- Prefer useful exploratory next steps for broad goals. Set `clarifying_question` to `null`; do not ask questions that the app cannot process.
 - Create or update app records only through validated application tools and permitted workflows.
 
 ### Safety and trust rules
@@ -250,8 +250,20 @@ Use a versioned schema. Example:
     {
       "title": "Define the intended audience",
       "due_date": null,
-      "source_text": "think about who it's for",
+      "source_text": "who it’s for",
       "confidence": 0.91
+    },
+    {
+      "title": "Draft three possible newsletter themes",
+      "due_date": null,
+      "source_text": "newsletter about easy meals",
+      "confidence": 0.87
+    },
+    {
+      "title": "Choose a realistic publishing frequency",
+      "due_date": null,
+      "source_text": "what I’d send every week",
+      "confidence": 0.84
     }
   ],
   "related_item_ids": [],
@@ -263,7 +275,7 @@ Use a versioned schema. Example:
 
 Do not expose private chain-of-thought. Store only concise, user-facing explanations such as `reasoning_summary`.
 
-The Python API defines schema version `1` in `backend/app/agent_schema.py`. It rejects unknown fields, invalid item types, out-of-range confidence values, oversized output, and candidate-task evidence that does not appear verbatim in the original capture. Candidate due dates preserve the capture's wording rather than converting them into a reminder date. Related item IDs are part of the versioned schema for compatibility, but they are not trusted to create links. Prompt version 2 asks for a useful explanation instead of repeating short captures and a clarifying question for broad goals without a concrete next step. The Groq adapter and prompt version are in `backend/app/model_adapter.py` and `backend/app/agent_prompts.py`; the worker invokes this adapter only after a user requests processing.
+The Python API defines schema version `1` in `backend/app/agent_schema.py`. It rejects unknown fields, invalid item types, out-of-range confidence values, oversized output, candidate-task evidence absent from the current capture, and related IDs outside the supplied candidate set. Candidate due dates preserve the capture wording rather than converting it into a reminder date. Prompt version 5 favors optional exploratory steps for broad goals, keeps `clarifying_question` null, and can suggest relevant saved-item links from the bounded candidate list. The Groq adapter and prompt version are in `backend/app/model_adapter.py` and `backend/app/agent_prompts.py`; the worker invokes this adapter only after a user requests processing.
 
 ## 6. Architecture
 

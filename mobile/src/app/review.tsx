@@ -49,6 +49,7 @@ function ReviewCard({
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(proposal?.title ?? "");
   const [summary, setSummary] = useState(proposal?.summary ?? "");
+  const [selectedRelatedItemIds, setSelectedRelatedItemIds] = useState<string[]>([]);
 
   function confirmDelete() {
     Alert.alert(
@@ -65,6 +66,7 @@ function ReviewCard({
     if (!proposal) return;
     await onAccept({
       ...proposal,
+      related_item_ids: selectedRelatedItemIds,
       title: editing ? title.trim() : proposal.title,
       summary: editing ? summary.trim() : proposal.summary,
     });
@@ -136,6 +138,42 @@ function ReviewCard({
               Next step: {task.title} · From your capture: {task.source_text}
             </Text>
           ))}
+          {entry.suggestion?.relatedItems.length ? (
+            <View style={styles.relatedSuggestionPanel}>
+              <Text style={styles.taskText}>
+                Possible links · choose which to include when accepting
+              </Text>
+              {entry.suggestion.relatedItems.map((relatedItem) => {
+                const selected = selectedRelatedItemIds.includes(relatedItem.id);
+                return (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`${selected ? "Remove" : "Add"} link to ${relatedItem.title}`}
+                    disabled={busy}
+                    key={relatedItem.id}
+                    onPress={() =>
+                      setSelectedRelatedItemIds((current) =>
+                        selected
+                          ? current.filter((id) => id !== relatedItem.id)
+                          : [...current, relatedItem.id],
+                      )
+                    }
+                    style={styles.relatedSuggestionRow}
+                  >
+                    <View style={styles.relatedSuggestionCopy}>
+                      <Text style={styles.relatedSuggestionTitle}>{relatedItem.title}</Text>
+                      <Text numberOfLines={2} style={styles.relatedSuggestionSummary}>
+                        {relatedItem.summary}
+                      </Text>
+                    </View>
+                    <Text style={styles.relatedSuggestionAction}>
+                      {selected ? "Included" : "Add link"}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
           <View style={styles.actions}>
             <Pressable
               accessibilityRole="button"
@@ -472,6 +510,12 @@ const styles = StyleSheet.create({
   proposalLabel: { color: "#53685A", fontSize: 11, fontWeight: "700", textTransform: "uppercase" },
   proposalTitle: { color: "#24342A", fontSize: 16, fontWeight: "700", marginTop: 8 },
   proposalSummary: { color: "#435147", fontSize: 14, lineHeight: 21, marginTop: 4 },
+  relatedSuggestionPanel: { borderTopColor: "#D9E1D8", borderTopWidth: StyleSheet.hairlineWidth, marginTop: 12, paddingTop: 4 },
+  relatedSuggestionRow: { alignItems: "center", backgroundColor: "#FFFFFF", borderColor: "#D9E1D8", borderRadius: 9, borderWidth: 1, flexDirection: "row", gap: 8, marginTop: 8, padding: 10 },
+  relatedSuggestionCopy: { flex: 1 },
+  relatedSuggestionTitle: { color: "#344238", fontSize: 13, fontWeight: "700" },
+  relatedSuggestionSummary: { color: "#68746B", fontSize: 12, lineHeight: 17, marginTop: 3 },
+  relatedSuggestionAction: { color: "#2F4636", fontSize: 12, fontWeight: "700" },
   proposalType: { color: "#68746B", fontSize: 11, marginTop: 7, textTransform: "uppercase" },
   taskText: { color: "#53685A", fontSize: 12, lineHeight: 18, marginTop: 8 },
   fieldLabel: { color: "#344238", fontSize: 13, fontWeight: "700", marginTop: 11 },

@@ -4,6 +4,7 @@ import json
 import re
 from dataclasses import dataclass
 from typing import Protocol
+from uuid import UUID
 
 from groq import APIConnectionError, APIStatusError, APITimeoutError, Groq
 
@@ -17,6 +18,7 @@ from app.agent_schema import (
     ValidationError,
     validate_proposal_json,
 )
+from app.related_items import RelatedItemCandidate
 
 REQUEST_TIMEOUT_SECONDS = 30
 MAX_COMPLETION_TOKENS = 3_000
@@ -115,6 +117,26 @@ class GroqChatAdapter:
 
     def propose_capture(self, capture_text: str) -> ModelProposalResult:
         messages = build_capture_processing_messages(capture_text)
+        return self._propose_messages(capture_text, messages, set())
+
+    def propose_capture_with_context(
+        self,
+        capture_text: str,
+        related_items: list[RelatedItemCandidate],
+    ) -> ModelProposalResult:
+        messages = build_capture_processing_messages(capture_text, related_items)
+        return self._propose_messages(
+            capture_text,
+            messages,
+            {item.id for item in related_items},
+        )
+
+    def _propose_messages(
+        self,
+        capture_text: str,
+        messages: list[dict[str, str]],
+        allowed_related_item_ids: set[UUID],
+    ) -> ModelProposalResult:
         try:
             response = self._client.chat.completions.create(
                 model=self._model,
@@ -162,6 +184,7 @@ class GroqChatAdapter:
             proposal = validate_proposal_json(
                 content,
                 original_capture=capture_text,
+                allowed_related_item_ids=allowed_related_item_ids,
             )
         except (json.JSONDecodeError, ValidationError, ValueError):
             raise ModelOutputError(

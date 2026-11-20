@@ -21,7 +21,7 @@ def _review_row(
 ) -> dict[str, Any] | None:
     return connection.execute(
         """
-        SELECT s.id, s.status, s.accepted_payload_json, s.capture_id,
+        SELECT s.id, s.status, s.payload_json, s.accepted_payload_json, s.capture_id,
             j.capture_revision, c.updated_at, c.current_text
         FROM agent_suggestions s
         JOIN agent_jobs j ON j.id = s.job_id AND j.user_id = s.user_id
@@ -73,10 +73,7 @@ def accept_suggestion(
         return None
 
     if row["status"] == "accepted":
-        comparison_data = proposal_data
-        if isinstance(proposal_data, dict) and "related_item_ids" in proposal_data:
-            comparison_data = {**proposal_data, "related_item_ids": []}
-        if comparison_data != row["accepted_payload_json"]:
+        if proposal_data != row["accepted_payload_json"]:
             raise ReviewConflictError("This suggestion was accepted with other edits.")
         item = connection.execute(
             """
@@ -117,13 +114,30 @@ def accept_suggestion(
             item_id=None,
         )
 
+    source_candidate_ids = {
+        UUID(value)
+        for value in row["payload_json"].get("related_item_ids", [])
+        if isinstance(value, str)
+    }
     proposal = validate_proposal_data(
         proposal_data,
         original_capture=row["current_text"],
+        allowed_related_item_ids=source_candidate_ids,
     )
-    # Model IDs are never used to create links; links require their own explicit action.
-    if proposal.related_item_ids:
-        proposal = proposal.model_copy(update={"related_item_ids": []})
+
+    related_ids = list(set(proposal.related_item_ids))
+    related_rows = (
+        connection.execute(
+            "SELECT id, capture_id FROM items WHERE user_id = %s AND id = ANY(%s)",
+            (user_id, related_ids),
+        ).fetchall()
+        if related_ids
+        else []
+    )
+    if len(related_rows) != len(related_ids) or any(
+        related["capture_id"] == row["capture_id"] for related in related_rows
+    ):
+        raise ReviewConflictError("A suggested saved-item link is no longer available.")
 
     accepted_payload = proposal.model_dump(mode="json")
     existing_items = connection.execute(
@@ -211,6 +225,16 @@ def accept_suggestion(
         """,
         (Jsonb(accepted_payload), suggestion_id, user_id),
     )
+    for related_id in related_ids:
+        item_low, item_high = sorted((item["id"], related_id))
+        connection.execute(
+            """
+            INSERT INTO item_relationships (user_id, item_low, item_high)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (user_id, item_low, item_high) DO NOTHING
+            """,
+            (user_id, item_low, item_high),
+        )
     return _review_result(
         connection,
         suggestion_id=suggestion_id,

@@ -47,6 +47,7 @@ def _serialize_job(row: dict[str, Any]) -> dict[str, object]:
             "itemId": str(row["item_id"]) if row["item_id"] else None,
             "modelIdentifier": row["model_identifier"],
             "promptVersion": row["prompt_version"],
+            "relatedItems": row.get("related_items", []),
             "createdAt": row["suggestion_created_at"]
             .isoformat()
             .replace("+00:00", "Z"),

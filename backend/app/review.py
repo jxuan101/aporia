@@ -30,6 +30,7 @@ def _serialize_queue_entry(row: dict[str, Any]) -> dict[str, object]:
         suggestion = {
             "id": str(row["suggestion_id"]),
             "proposal": row["payload_json"],
+            "relatedItems": row["related_items"] or [],
         }
     return {
         "capture": serialize_capture(row),
@@ -79,6 +80,7 @@ def read_daily_review_queue(
                 c.updated_at, j.id AS job_id, j.status AS job_status,
                 j.attempt_count, j.max_attempts, j.error_code,
                 s.id AS suggestion_id, s.payload_json,
+                related.related_items,
                 CASE
                     WHEN s.status = 'pending' THEN 'suggestion_ready'
                     WHEN j.status = 'failed' THEN 'processing_failed'
@@ -103,13 +105,31 @@ def read_daily_review_queue(
             LEFT JOIN agent_jobs j ON j.capture_id = c.id AND j.user_id = c.user_id
                 AND j.capture_revision = c.updated_at
             LEFT JOIN agent_suggestions s ON s.job_id = j.id AND s.user_id = j.user_id
+            LEFT JOIN LATERAL (
+                SELECT jsonb_agg(jsonb_build_object(
+                    'id', i.id,
+                    'type', i.item_type,
+                    'title', i.title,
+                    'summary', i.summary
+                )) AS related_items
+                FROM jsonb_array_elements_text(
+                    COALESCE(s.payload_json->'related_item_ids', '[]'::jsonb)
+                ) AS candidate(item_id)
+                JOIN items i ON i.id = candidate.item_id::uuid
+                    AND i.user_id = c.user_id
+            ) related ON TRUE
             LEFT JOIN capture_review_deferrals d
                 ON d.capture_id = c.id AND d.user_id = c.user_id
                 AND d.capture_revision = c.updated_at
             WHERE c.user_id = %s
                 AND (d.deferred_until IS NULL OR d.deferred_until <= now())
                 AND (j.id IS NULL OR j.status IN ('queued', 'running', 'failed')
-                    OR s.status = 'pending')
+                    OR s.status = 'pending'
+                    OR (j.status = 'succeeded' AND s.status = 'accepted'
+                        AND NOT EXISTS (
+                            SELECT 1 FROM items i
+                            WHERE i.user_id = c.user_id AND i.capture_id = c.id
+                        )))
         )
         SELECT * FROM review_queue
         WHERE {" AND ".join(clauses)}

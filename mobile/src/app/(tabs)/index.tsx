@@ -99,9 +99,18 @@ function CaptureCard({
   const [isEditingProposal, setIsEditingProposal] = useState(false);
   const [proposalTitle, setProposalTitle] = useState("");
   const [proposalSummary, setProposalSummary] = useState("");
+  const [relatedItemSelection, setRelatedItemSelection] = useState<{
+    suggestionId: string;
+    ids: string[];
+  } | null>(null);
 
   const suggestion = job?.suggestion ?? null;
   const isJobActive = job?.status === "queued" || job?.status === "running";
+  const selectedRelatedItemIds = suggestion
+    ? relatedItemSelection?.suggestionId === suggestion.id
+      ? relatedItemSelection.ids
+      : []
+    : [];
 
   useEffect(() => {
     if (!job?.id || !isJobActive || pollingPaused) {
@@ -203,6 +212,12 @@ function CaptureCard({
           status: decision.status,
           acceptedProposal: decision.acceptedProposal,
           itemId: decision.itemId,
+          relatedItems:
+            decision.status === "accepted"
+              ? current.suggestion.relatedItems.filter((item) =>
+                  decision.acceptedProposal?.related_item_ids.includes(item.id),
+                )
+              : current.suggestion.relatedItems,
         },
       };
     });
@@ -218,6 +233,7 @@ function CaptureCard({
     try {
       const proposal: ProcessingProposal = {
         ...suggestion.proposal,
+        related_item_ids: selectedRelatedItemIds,
         title: isEditingProposal
           ? proposalTitle.trim()
           : suggestion.proposal.title,
@@ -261,6 +277,9 @@ function CaptureCard({
     setError(null);
     try {
       await onSave(capture.id, draft);
+      setJob(null);
+      setPollingPaused(false);
+      setDraftState({ sourceText: draft, text: draft });
       setIsEditingCapture(false);
       Keyboard.dismiss();
     } catch (saveError) {
@@ -536,11 +555,45 @@ function CaptureCard({
                   <Text style={styles.taskSourceText}>From your capture: {task.source_text}</Text>
                 </View>
               ))}
-              {suggestion.proposal.clarifying_question && (
-                <Text style={styles.suggestionDetail}>
-                  Question: {suggestion.proposal.clarifying_question}
-                </Text>
-              )}
+              {suggestion.relatedItems.length > 0 ? (
+                <View style={styles.relatedSuggestionPanel}>
+                  <Text style={styles.suggestionDetail}>
+                    {suggestion.status === "pending"
+                      ? "Possible links · choose which to include when accepting"
+                      : "Saved item links"}
+                  </Text>
+                  {suggestion.relatedItems.map((relatedItem) => {
+                    const selected = selectedRelatedItemIds.includes(relatedItem.id);
+                    return (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`${selected ? "Remove" : "Add"} link to ${relatedItem.title}`}
+                        disabled={busy || suggestion.status !== "pending"}
+                        key={relatedItem.id}
+                        onPress={() =>
+                          setRelatedItemSelection({
+                            suggestionId: suggestion.id,
+                            ids: selected
+                              ? selectedRelatedItemIds.filter((id) => id !== relatedItem.id)
+                              : [...selectedRelatedItemIds, relatedItem.id],
+                          })
+                        }
+                        style={styles.relatedSuggestionRow}
+                      >
+                        <View style={styles.relatedSuggestionCopy}>
+                          <Text style={styles.relatedSuggestionTitle}>{relatedItem.title}</Text>
+                          <Text numberOfLines={2} style={styles.relatedSuggestionSummary}>
+                            {relatedItem.summary}
+                          </Text>
+                        </View>
+                        <Text style={styles.relatedSuggestionAction}>
+                          {selected ? "Included" : "Add link"}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ) : null}
               <Text style={styles.suggestionExplanation}>
                 {suggestion.proposal.reasoning_summary}
               </Text>
@@ -871,7 +924,7 @@ export default function InboxScreen() {
             captures.map((capture) => (
               <CaptureCard
                 capture={capture}
-                key={`${capture.id}:${capture.updatedAt}`}
+                key={capture.id}
                 onDelete={handleDeleteCapture}
                 onSave={handleSaveCapture}
                 onRequestProcessing={handleRequestProcessing}
@@ -1157,6 +1210,27 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     marginTop: 7,
   },
+  relatedSuggestionPanel: {
+    borderTopColor: "#D9E1D8",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    marginTop: 12,
+    paddingTop: 4,
+  },
+  relatedSuggestionRow: {
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderColor: "#D9E1D8",
+    borderRadius: 9,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 8,
+    padding: 10,
+  },
+  relatedSuggestionCopy: { flex: 1 },
+  relatedSuggestionTitle: { color: "#344238", fontSize: 13, fontWeight: "700" },
+  relatedSuggestionSummary: { color: "#68746B", fontSize: 12, lineHeight: 17, marginTop: 3 },
+  relatedSuggestionAction: { color: "#2F4636", fontSize: 12, fontWeight: "700" },
   taskSuggestion: {
     borderLeftColor: "#9BAE9C",
     borderLeftWidth: 2,

@@ -61,7 +61,7 @@ export default function LoginScreen() {
           <Text accessibilityRole="header" style={styles.title}>Make room to think.</Text>
           <Text style={styles.subtitle}>
             A private place for the ideas, reminders, and loose ends on your mind.
-            Capture now; decide what to do later.
+            Capture now, decide what to do later.
           </Text>
           {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
           {error ? (

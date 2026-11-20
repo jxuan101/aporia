@@ -4,7 +4,7 @@ import json
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 PROPOSAL_SCHEMA_VERSION = "1"
 MAX_PROPOSAL_JSON_BYTES = 64_000
@@ -39,17 +39,24 @@ class ProcessingProposal(StrictProposalModel):
     confidence: Confidence
     reasoning_summary: str = Field(min_length=1, max_length=500)
 
+    @field_validator("related_item_ids")
+    @classmethod
+    def related_item_ids_must_be_unique(cls, values: list[UUID]) -> list[UUID]:
+        if len(values) != len(set(values)):
+            raise ValueError("Related saved-item IDs must be unique.")
+        return values
+
 
 def validate_proposal_json(
     raw_json: str,
     *,
     original_capture: str,
+    allowed_related_item_ids: set[UUID] | None = None,
 ) -> ProcessingProposal:
     """Parse bounded proposal JSON and reject task evidence absent from source.
 
-    Due dates preserve the capture's own wording. Referenced IDs are only
-    syntax-checked here; callers must verify ownership before showing related
-    records or persisting accepted relationships.
+    Due dates preserve the capture's own wording. Related IDs must belong to
+    the user-scoped candidate set supplied to this validation boundary.
     """
     if not isinstance(raw_json, str):
         raise ValueError("The model proposal must be JSON text.")
@@ -57,6 +64,10 @@ def validate_proposal_json(
         raise ValueError("The model proposal exceeds the maximum allowed size.")
 
     proposal = ProcessingProposal.model_validate_json(raw_json)
+    if allowed_related_item_ids is not None and not set(
+        proposal.related_item_ids
+    ).issubset(allowed_related_item_ids):
+        raise ValueError("A related item was not included in the candidate list.")
     for candidate in proposal.candidate_tasks:
         if candidate.source_text not in original_capture:
             raise ValueError("A candidate task cites text absent from the capture.")
@@ -75,6 +86,7 @@ def validate_proposal_data(
     value: object,
     *,
     original_capture: str,
+    allowed_related_item_ids: set[UUID] | None = None,
 ) -> ProcessingProposal:
     """Validate a JSON-decoded request body with the same strict contract."""
     if not isinstance(value, dict):
@@ -83,7 +95,11 @@ def validate_proposal_data(
         raw_json = json.dumps(value, ensure_ascii=False)
     except (TypeError, ValueError):
         raise ValueError("The proposal must contain only JSON values.") from None
-    return validate_proposal_json(raw_json, original_capture=original_capture)
+    return validate_proposal_json(
+        raw_json,
+        original_capture=original_capture,
+        allowed_related_item_ids=allowed_related_item_ids,
+    )
 
 
 __all__ = [

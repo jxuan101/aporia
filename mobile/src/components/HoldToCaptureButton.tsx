@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Pressable, StyleSheet, Text } from "react-native";
+import { Alert, Pressable, StyleSheet } from "react-native";
+import { Feather } from "@expo/vector-icons";
 import * as SecureStore from "expo-secure-store";
 import { router } from "expo-router";
 import {
@@ -206,7 +207,7 @@ export function HoldToCaptureButton() {
         pressed && styles.pressed,
       ]}
     >
-      <Text style={styles.icon}>🎙️</Text>
+      <Feather color="#FFFFFF" name="mic" size={30} />
     </Pressable>
   );
 }
@@ -226,5 +227,4 @@ const styles = StyleSheet.create({
   },
   recording: { backgroundColor: "#A33D32", transform: [{ scale: 1.06 }] },
   pressed: { opacity: 0.8 },
-  icon: { color: "#FFFFFF", fontSize: 28, lineHeight: 32 },
 });

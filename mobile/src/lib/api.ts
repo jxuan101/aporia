@@ -72,6 +72,12 @@ const relatedItemsResponseSchema = z.object({
     }),
   ),
 });
+const relatedItemLinkSchema = z.object({
+  id: z.string().uuid(),
+  type: z.string(),
+  title: z.string(),
+  summary: z.string(),
+});
 
 const processingProposalSchema = z.object({
   schema_version: z.literal("1"),
@@ -93,6 +99,7 @@ const agentSuggestionSchema = z.object({
   status: z.enum(["pending", "accepted", "rejected", "stale"]),
   acceptedProposal: processingProposalSchema.nullable(),
   itemId: z.string().uuid().nullable(),
+  relatedItems: z.array(relatedItemLinkSchema),
   modelIdentifier: z.string(),
   promptVersion: z.string(),
   createdAt: z.string().datetime(),
@@ -136,6 +143,7 @@ const dailyReviewResponseSchema = z.object({
         .object({
           id: z.string().uuid(),
           proposal: processingProposalSchema,
+          relatedItems: z.array(relatedItemLinkSchema),
         })
         .nullable(),
     }),
