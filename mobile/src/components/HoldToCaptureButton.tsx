@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Pressable, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import * as SecureStore from "expo-secure-store";
 import { router } from "expo-router";
 import {
   ExpoSpeechRecognitionModule,
   useSpeechRecognitionEvent,
 } from "expo-speech-recognition";
 
-import { SESSION_KEY } from "../lib/session";
+import { getSessionToken } from "../lib/session";
 
 // Android speech services can report `end` while they are still releasing the
 // previous recognizer. Give the service time to disconnect before restarting.
@@ -112,7 +111,7 @@ export function HoldToCaptureButton() {
 
   async function startRecognition(): Promise<void> {
     try {
-      const token = await SecureStore.getItemAsync(SESSION_KEY);
+      const token = await getSessionToken();
       if (!token) {
         setHolding(false);
         Alert.alert("Sign in required", "Sign in before using voice capture.");

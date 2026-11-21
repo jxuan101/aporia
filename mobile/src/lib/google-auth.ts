@@ -14,7 +14,7 @@ async function getGoogleSignInModule(): Promise<GoogleSignInModule> {
       nativeModulePromise = undefined;
       if (error instanceof Error && error.message.includes("RNGoogleSignin")) {
         throw new Error(
-          "Google sign-in is unavailable in this app build. Rebuild the BrainDump development client with `npm run android` or `npm run ios`, then restart Metro with `npm run start`.",
+          "Google sign-in is unavailable in this app build. Rebuild the Aporia development client with `npm run android` or `npm run ios`, then restart Metro with `npm run start`.",
         );
       }
       throw error;

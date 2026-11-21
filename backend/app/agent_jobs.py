@@ -24,7 +24,7 @@ MAX_ATTEMPTS = 3
 MAX_DAILY_PROCESSING_REQUESTS_PER_USER = AI_DAILY_PROCESSING_LIMIT
 LEASE_SECONDS = 120
 POLL_INTERVAL_SECONDS = 1
-logger = logging.getLogger("braindump.agent_jobs")
+logger = logging.getLogger("aporia.agent_jobs")
 
 
 class ProcessingUsageLimitError(Exception):
@@ -102,10 +102,7 @@ def enqueue_capture_job(
         job["status"] == "succeeded"
         and (
             job["suggestion_status"] == "rejected"
-            or (
-                job["suggestion_status"] == "accepted"
-                and not job["has_saved_item"]
-            )
+            or (job["suggestion_status"] == "accepted" and not job["has_saved_item"])
         )
     ):
         _consume_daily_processing_request(connection, user_id=user_id)

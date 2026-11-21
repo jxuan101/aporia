@@ -1,14 +1,14 @@
-# BrainDump
+# Aporia
 
 > Capture everything. Understand what matters. Organize automatically. Turn thoughts into action.
 
-BrainDump is a personal thought-processing workspace. Users can quickly capture messy thoughts, ideas, notes, reminders, questions, and commitments. An AI agent turns that unstructured input into useful, editable information: tasks, projects, reference notes, questions, and connections.
+Aporia is a personal thought-processing workspace. Users can quickly capture messy thoughts, ideas, notes, reminders, questions, and commitments. An AI agent turns that unstructured input into useful, editable information: tasks, projects, reference notes, questions, and connections.
 
 The product is not intended to be another generic chatbot or a complex project-management suite. Its core promise is to reduce the mental effort between **having a thought** and **knowing what to do with it**.
 
 ## Getting started
 
-BrainDump is now an iOS and Android app built with Expo and React Native. A private FastAPI backend provides PostgreSQL-backed capture, account, processing, and suggestion review APIs; there is no browser-based inbox. AI proposals are optional and require an explicit user action before they become items.
+Aporia is now an iOS and Android app built with Expo and React Native. A private FastAPI backend provides PostgreSQL-backed capture, account, processing, and suggestion review APIs; there is no browser-based inbox. AI proposals are optional and require an explicit user action before they become items.
 
 Requirements: Python 3.11 or later, Docker Compose, Node.js and npm for the mobile app, and Xcode (iOS) or Android Studio (Android) for local native builds.
 
@@ -49,12 +49,14 @@ If `mobile/.env.local` already exists, preserve it and add/update its values. Se
 Configure Google OAuth clients in the same Google Cloud project:
 
 - Set `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` in `mobile/.env.local` to the same Web client ID as `AUTH_GOOGLE_ID`.
-- Set `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` to the iOS OAuth client ID. The app derives its iOS URL scheme from this value.
-- Register the Android package `com.braindump.mobile` and the signing certificate SHA-1 fingerprints in Google Cloud. For local builds, obtain the debug fingerprint after generating the native project.
+- Create an iOS OAuth client for bundle ID `com.aporia.mobile` and set `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` to its client ID. The app derives its iOS URL scheme from this value.
+- Create an Android OAuth client for package `com.aporia.mobile` and register the signing certificate SHA-1 fingerprints in Google Cloud. For local builds, obtain the debug fingerprint after generating the native project.
 
-Google sign-in and speech recognition use native code, so Expo Go is not supported. Hold the center microphone button to speak; releasing it stops the device speech-recognition service and opens the capture form with the transcript filled in. Recognition runs through the platform service, which may use network services depending on the device and its settings. BrainDump does not upload or save a voice recording. The app requests microphone and speech-recognition permissions when voice capture is first used. Build and run a development app with `npm run ios` or `npm run android` from `mobile/`; these commands require the corresponding local platform toolchain. Start Metro separately with `npm start` in `mobile/` when needed.
+The native identifiers are `com.aporia.mobile` on both platforms, with the `aporia` URL scheme. Existing installs using the previous identifiers are separate apps and cannot be upgraded in place. Rebuild the native app and register the new iOS and Android OAuth clients before signing in. The app attempts to migrate the previous SecureStore session key when the operating system makes it available; signing in again may still be necessary. The API migration command adopts the previous schema-version table when pointed at an existing database. Local Compose now creates a fresh `aporia` database and volume; the previous Docker volume is left intact, so export/import its data before switching if you need to preserve it.
 
-Profile downloads the JSON export directly to device storage. Android opens the system directory picker so the user can choose a folder. iOS saves it in BrainDump's Documents directory, which is exposed in Files by the `expo-file-system` plugin configuration. Rebuild the iOS development app after changing that native plugin setting.
+Google sign-in and speech recognition use native code, so Expo Go is not supported. Hold the center microphone button to speak; releasing it stops the device speech-recognition service and opens the capture form with the transcript filled in. Recognition runs through the platform service, which may use network services depending on the device and its settings. Aporia does not upload or save a voice recording. The app requests microphone and speech-recognition permissions when voice capture is first used. Build and run a development app with `npm run ios` or `npm run android` from `mobile/`; these commands require the corresponding local platform toolchain. Start Metro separately with `npm start` in `mobile/` when needed.
+
+Profile downloads the JSON export directly to device storage. Android opens the system directory picker so the user can choose a folder. iOS saves it in Aporia's Documents directory, which is exposed in Files by the `expo-file-system` plugin configuration. Rebuild the iOS development app after changing that native plugin setting.
 
 The API supports Google sign-in, user-scoped capture creation/edit/deletion, PostgreSQL full-text search across captures and saved-item metadata, paginated capture and item lists, item details, JSON export, explicit AI processing, and suggestion accept/edit/reject. Session tokens are random, revocable bearer tokens stored in iOS Keychain or Android Keystore through Expo SecureStore. Google ID tokens are verified by the backend and are not retained; Drive access is not requested. Editing keeps the original capture, and deleting remains permanent.
 
@@ -92,7 +94,7 @@ The job table deduplicates requests for the same capture revision, claims work w
 
 Google identities are not automatically linked by email. Existing data remains attached to its original Google or GitHub identity unless the same Google account is already linked or an explicit migration is performed.
 
-Add versioned SQL migrations under `backend/migrations/` and apply them with `cd backend && make migrate`. Install test and lint dependencies with `cd backend && make install-dev`; run unit tests with `make test` and lint with `make lint`. The database integration tests require a dedicated local database named with the `_test` suffix; create `braindump_test` once with `docker compose exec -T db createdb -U braindump braindump_test`, then run `BRAINDUMP_TEST_DATABASE_URL=postgresql://braindump:braindump-local@127.0.0.1:5432/braindump_test make integration-test`. Run mobile checks with `cd mobile && npm run lint && npm run typecheck`.
+Add versioned SQL migrations under `backend/migrations/` and apply them with `cd backend && make migrate`. Install test and lint dependencies with `cd backend && make install-dev`; run unit tests with `make test` and lint with `make lint`. The database integration tests require a dedicated local database named with the `_test` suffix; create `aporia_test` once with `docker compose exec -T db createdb -U aporia aporia_test`, then run `APORIA_TEST_DATABASE_URL=postgresql://aporia:aporia-local@127.0.0.1:5432/aporia_test make integration-test`. Run mobile checks with `cd mobile && npm run lint && npm run typecheck`.
 
 ## 1. Product vision
 
@@ -104,7 +106,7 @@ People accumulate fragments of information throughout the day:
 - “Remember the name of that book.”
 - “The car needs servicing sometime next month.”
 
-These fragments are usually scattered across notes, messages to oneself, paper, and memory. BrainDump provides one low-friction inbox and an agent that processes the material into a useful personal knowledge system.
+These fragments are usually scattered across notes, messages to oneself, paper, and memory. Aporia provides one low-friction inbox and an agent that processes the material into a useful personal knowledge system.
 
 ### Product principles
 
@@ -507,7 +509,7 @@ Do not optimize for the number of AI-generated suggestions. More suggestions can
 A possible structure for the current mobile-client and API implementation:
 
 ```text
-braindump/
+aporia/
 ├── AGENTS.md
 ├── README.md
 ├── .env.example
@@ -575,4 +577,4 @@ Build the smallest product that proves the central loop:
 
 **Capture → Process → Review → Retrieve → Act**
 
-If that loop becomes genuinely useful, BrainDump has a foundation worth expanding. Avoid adding integrations, elaborate agent frameworks, or feature-heavy dashboards before validating it.
+If that loop becomes genuinely useful, Aporia has a foundation worth expanding. Avoid adding integrations, elaborate agent frameworks, or feature-heavy dashboards before validating it.

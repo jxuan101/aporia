@@ -14,9 +14,9 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       "expo-speech-recognition",
       {
         microphonePermission:
-          "BrainDump uses the microphone while you hold the capture button.",
+          "Aporia uses the microphone while you hold the capture button.",
         speechRecognitionPermission:
-          "BrainDump uses speech recognition to fill in your capture.",
+          "Aporia uses speech recognition to fill in your capture.",
         androidSpeechServicePackages: [
           "com.google.android.googlequicksearchbox",
           "com.google.android.tts",
@@ -34,20 +34,20 @@ export default ({ config }: ConfigContext): ExpoConfig => {
 
   return {
     ...config,
-    name: "BrainDump",
-    slug: "braindump-mobile",
+    name: "Aporia",
+    slug: "aporia-mobile",
     version: "0.1.0",
-    scheme: "braindump",
+    scheme: "aporia",
     orientation: "portrait",
     userInterfaceStyle: "light",
     ios: {
       ...config.ios,
-      bundleIdentifier: "com.braindump.mobile",
+      bundleIdentifier: "com.aporia.mobile",
       supportsTablet: false,
     },
     android: {
       ...config.android,
-      package: "com.braindump.mobile",
+      package: "com.aporia.mobile",
     },
     plugins,
     experiments: {

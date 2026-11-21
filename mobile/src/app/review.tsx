@@ -9,7 +9,6 @@ import {
   TextInput,
   View,
 } from "react-native";
-import * as SecureStore from "expo-secure-store";
 import { router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -24,7 +23,7 @@ import {
   type DailyReviewEntry,
   type ProcessingProposal,
 } from "../lib/api";
-import { SESSION_KEY } from "../lib/session";
+import { getSessionToken } from "../lib/session";
 
 type ReviewCardProps = {
   entry: DailyReviewEntry;
@@ -301,7 +300,7 @@ export default function DailyReviewScreen() {
     let active = true;
     async function restoreQueue() {
       try {
-        const sessionToken = await SecureStore.getItemAsync(SESSION_KEY);
+        const sessionToken = await getSessionToken();
         if (!sessionToken) {
           router.replace("/");
           return;

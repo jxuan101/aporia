@@ -10,7 +10,7 @@ from app.items import router as items_router
 from app.review import router as review_router
 
 app = FastAPI(
-    title="BrainDump API",
+    title="Aporia API",
     docs_url=None,
     redoc_url=None,
     openapi_url=None,

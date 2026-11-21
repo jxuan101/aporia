@@ -1,12 +1,12 @@
 import { Platform, StyleSheet, Text, View } from "react-native";
 
-export function BrainDumpHeader() {
+export function AporiaHeader() {
   return (
     <View style={styles.header}>
       <View style={styles.mark}>
-        <Text style={styles.markText}>b</Text>
+        <Text style={styles.markText}>A</Text>
       </View>
-      <Text style={styles.name}>BrainDump</Text>
+      <Text style={styles.name}>Aporia</Text>
     </View>
   );
 }

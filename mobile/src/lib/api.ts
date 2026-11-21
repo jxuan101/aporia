@@ -162,8 +162,8 @@ const suggestionDecisionResponseSchema = z.object({
 
 export type Capture = z.infer<typeof captureSchema>;
 export type CaptureCreation = z.infer<typeof captureCreateResponseSchema>;
-export type BrainDumpItem = z.infer<typeof itemSchema>;
-export type BrainDumpItemDetail = z.infer<typeof itemDetailSchema>["item"];
+export type AporiaItem = z.infer<typeof itemSchema>;
+export type AporiaItemDetail = z.infer<typeof itemDetailSchema>["item"];
 export type RelatedItems = z.infer<typeof relatedItemsResponseSchema>;
 export type MobileSession = z.infer<typeof sessionResponseSchema>;
 export type ProcessingProposal = z.infer<typeof processingProposalSchema>;
@@ -226,7 +226,7 @@ async function request(
           : JSON.stringify(options.body),
     });
   } catch {
-    throw new ApiError("Could not reach BrainDump. Check your connection.");
+    throw new ApiError("Could not reach Aporia. Check your connection.");
   }
 
   if (response.status === 204) {
@@ -238,7 +238,7 @@ async function request(
     responseBody = await response.json();
   } catch (error) {
     if (error instanceof SyntaxError) {
-      throw new ApiError("BrainDump returned an invalid response.", response.status);
+      throw new ApiError("Aporia returned an invalid response.", response.status);
     }
     throw error;
   }
@@ -309,7 +309,7 @@ export async function listItems(
 export async function getItem(
   token: string,
   itemId: string,
-): Promise<BrainDumpItemDetail> {
+): Promise<AporiaItemDetail> {
   const response = await request(`/api/v1/items/${encodeURIComponent(itemId)}`, {
     token,
   });

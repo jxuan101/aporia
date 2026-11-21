@@ -39,7 +39,7 @@ export default function LoginScreen() {
         signInError.code === "DEVELOPER_ERROR";
       setError(
         isGoogleDeveloperError
-          ? "Google rejected this app’s OAuth setup. Confirm the configured ID is a Web client from the same Google Cloud project as the Android client for com.braindump.mobile."
+          ? "Google rejected this app’s OAuth setup. Confirm the configured ID is a Web client from the same Google Cloud project as the Android client for com.aporia.mobile."
           : signInError instanceof Error
             ? signInError.message
             : "Sign-in could not be completed. Try again.",
@@ -56,7 +56,7 @@ export default function LoginScreen() {
         style={styles.flex}
       >
         <View style={styles.content}>
-          <View style={styles.logoMark}><Text style={styles.logoLetter}>b</Text></View>
+          <View style={styles.logoMark}><Text style={styles.logoLetter}>A</Text></View>
           <Text style={styles.eyebrow}>CAPTURE · CLARIFY · ACT</Text>
           <Text accessibilityRole="header" style={styles.title}>Make room to think.</Text>
           <Text style={styles.subtitle}>
@@ -83,7 +83,7 @@ export default function LoginScreen() {
             <Text style={styles.error}>Set the Google client IDs in mobile/.env.local to sign in.</Text>
           ) : null}
           <Text style={styles.privacy}>
-            Sign-in only shares your basic Google profile and email. BrainDump does not request access to Drive.
+            Sign-in only shares your basic Google profile and email. Aporia does not request access to Drive.
           </Text>
         </View>
       </KeyboardAvoidingView>

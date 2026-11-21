@@ -1,10 +1,10 @@
-# AGENTS.md — BrainDump coding assistant instructions
+# AGENTS.md — Aporia coding assistant instructions
 
 This file defines how AI coding assistants should work in this repository. Follow it together with the project README and any more specific instructions in subdirectories.
 
 ## 1. Mission
 
-Build BrainDump: a reliable, privacy-conscious personal thought-processing app.
+Build Aporia: a reliable, privacy-conscious personal thought-processing app.
 
 The core workflow is:
 

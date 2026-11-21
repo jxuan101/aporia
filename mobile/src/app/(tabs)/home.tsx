@@ -1,13 +1,13 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { BrainDumpHeader } from "../../components/BrainDumpHeader";
+import { AporiaHeader } from "../../components/AporiaHeader";
 import { tabTypography } from "../../theme/tabTypography";
 
 export default function HomeScreen() {
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={styles.screen}>
-      <BrainDumpHeader />
+      <AporiaHeader />
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={tabTypography.eyebrow}>HOME</Text>
         <Text accessibilityRole="header" style={tabTypography.title}>Make room to think.</Text>

@@ -46,6 +46,6 @@ def export_captures(
         payload,
         headers={
             **API_HEADERS,
-            "Content-Disposition": 'attachment; filename="braindump-export.json"',
+            "Content-Disposition": 'attachment; filename="aporia-export.json"',
         },
     )

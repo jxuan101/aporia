@@ -1,11 +1,10 @@
 import { useState } from "react";
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
-import * as SecureStore from "expo-secure-store";
 import { router, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { createCapture } from "../lib/api";
-import { SESSION_KEY } from "../lib/session";
+import { getSessionToken } from "../lib/session";
 import { MAX_CAPTURE_LENGTH } from "../lib/limits";
 
 export default function QuickCaptureScreen() {
@@ -23,7 +22,7 @@ export default function QuickCaptureScreen() {
     setBusy(true);
     setError(null);
     try {
-      const token = await SecureStore.getItemAsync(SESSION_KEY);
+      const token = await getSessionToken();
       if (!token) {
         router.replace("/");
         return;

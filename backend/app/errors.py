@@ -7,7 +7,7 @@ API_HEADERS = {
     "Cache-Control": "private, no-store",
     "X-Content-Type-Options": "nosniff",
 }
-logger = logging.getLogger("braindump.api")
+logger = logging.getLogger("aporia.api")
 
 
 class ApiError(Exception):

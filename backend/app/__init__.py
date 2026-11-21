@@ -1,1 +1,1 @@
-"""BrainDump's Python API."""
+"""Aporia's Python API."""

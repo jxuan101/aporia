@@ -20,7 +20,7 @@ from app.model_adapter import (
     ModelTemporarilyUnavailable,
 )
 
-TEST_DATABASE_URL = os.getenv("BRAINDUMP_TEST_DATABASE_URL")
+TEST_DATABASE_URL = os.getenv("APORIA_TEST_DATABASE_URL")
 
 
 def database_connection_factory() -> psycopg.Connection:
@@ -71,9 +71,7 @@ class InvalidOutputAdapter:
 @pytest.fixture(scope="session")
 def database_url() -> str:
     if not TEST_DATABASE_URL:
-        pytest.skip(
-            "Set BRAINDUMP_TEST_DATABASE_URL to run database integration tests."
-        )
+        pytest.skip("Set APORIA_TEST_DATABASE_URL to run database integration tests.")
     validate_test_database_url(TEST_DATABASE_URL)
     migrate_database(TEST_DATABASE_URL)
     return TEST_DATABASE_URL

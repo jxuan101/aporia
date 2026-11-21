@@ -10,7 +10,7 @@ from app.agent_jobs import POLL_INTERVAL_SECONDS, process_next_job
 from app.config import DATABASE_URL
 from app.model_factory import configured_model_adapter
 
-logger = logging.getLogger("braindump.agent_worker")
+logger = logging.getLogger("aporia.agent_worker")
 
 
 def run_worker() -> None:

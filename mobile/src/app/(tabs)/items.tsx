@@ -9,18 +9,17 @@ import {
   TextInput,
   View,
 } from "react-native";
-import * as SecureStore from "expo-secure-store";
 import { router, useFocusEffect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { ApiError, type BrainDumpItem, listItems } from "../../lib/api";
-import { SESSION_KEY } from "../../lib/session";
-import { BrainDumpHeader } from "../../components/BrainDumpHeader";
+import { ApiError, type AporiaItem, listItems } from "../../lib/api";
+import { getSessionToken } from "../../lib/session";
+import { AporiaHeader } from "../../components/AporiaHeader";
 import { tabTypography } from "../../theme/tabTypography";
 import { MAX_SEARCH_QUERY_LENGTH } from "../../lib/limits";
 
 export default function ItemsScreen() {
-  const [items, setItems] = useState<BrainDumpItem[]>([]);
+  const [items, setItems] = useState<AporiaItem[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -47,7 +46,7 @@ export default function ItemsScreen() {
       let active = true;
       async function restoreItems() {
         try {
-          const storedToken = await SecureStore.getItemAsync(SESSION_KEY);
+          const storedToken = await getSessionToken();
           if (!storedToken) {
             router.replace("/");
             return;
@@ -141,7 +140,7 @@ export default function ItemsScreen() {
 
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={styles.screen}>
-      <BrainDumpHeader />
+      <AporiaHeader />
       <FlatList
         contentContainerStyle={styles.content}
         data={items}

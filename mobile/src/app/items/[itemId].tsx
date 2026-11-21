@@ -8,7 +8,6 @@ import {
   Text,
   View,
 } from "react-native";
-import * as SecureStore from "expo-secure-store";
 import { router, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -18,15 +17,15 @@ import {
   getItem,
   getRelatedItems,
   setTaskCompletion,
-  type BrainDumpItemDetail,
+  type AporiaItemDetail,
   type RelatedItems,
   removeRelatedItem,
 } from "../../lib/api";
-import { SESSION_KEY } from "../../lib/session";
+import { getSessionToken } from "../../lib/session";
 
 export default function ItemDetailScreen() {
   const { itemId } = useLocalSearchParams<{ itemId: string }>();
-  const [item, setItem] = useState<BrainDumpItemDetail | null>(null);
+  const [item, setItem] = useState<AporiaItemDetail | null>(null);
   const [related, setRelated] = useState<RelatedItems | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -44,7 +43,7 @@ export default function ItemDetailScreen() {
     setLoading(true);
     setError(null);
     try {
-      const sessionToken = await SecureStore.getItemAsync(SESSION_KEY);
+      const sessionToken = await getSessionToken();
       if (!sessionToken) {
         router.replace("/");
         return;
@@ -71,7 +70,7 @@ export default function ItemDetailScreen() {
     let active = true;
     async function loadInitialDetail() {
       try {
-        const sessionToken = await SecureStore.getItemAsync(SESSION_KEY);
+        const sessionToken = await getSessionToken();
         if (!sessionToken) {
           router.replace("/");
           return;

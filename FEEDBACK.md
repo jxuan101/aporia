@@ -2,9 +2,9 @@ Things to fix:
 - [x] Clicking process with AI spams the backend with ```"GET /api/v1/agent/jobs/dc2bc119-6948-4b17-8c67-d343dffb0ec5 HTTP/1.1" 200 OK``` but nothing actually happens. It shouldn't keep retrying if access to AI is unavailable.
 - [x] The Items, Export, Sign Out buttons should probably be placed in a sandwich bar modal.
 - [x] When trying to edit stuff in the inbox, the phone's popup keyboard blocks the text so the user can't see anything.
-- [x] Braindump shouldn't be included in the header when the Items page is open.
+- [x] Aporia shouldn't be included in the header when the Items page is open.
 - [x] The app needs more debugging messages in the logs so I know what errors we're running into especially on the backend.
-- [x] The Daily Review page should not have the Braindump title in the header as well.
+- [x] The Daily Review page should not have the Aporia title in the header as well.
 - [x] Clicking a task in the items page leads to an unmatched route page.
 - [x] The items in the inbox should not be editable by default.
 - [x] Are the AI suggestions suppose to be so simple? For example, when I put "I need to learn to sing", the suggestion is basically "Learn to sing."
@@ -30,7 +30,7 @@ Things to fix:
 - [x] Fixed repeated speech to text attempts stopping after the first successful use.
 - [x] Deleting a capture refreshes the saved items list when returning to that tab.
 - [x] If there is no transcription, do not show a popup; silently do nothing.
-- [x] Show the branded BrainDump header on all tabs, without a redundant Home heading.
+- [x] Show the branded Aporia header on all tabs, without a redundant Home heading.
 - [x] Rejecting an AI suggestion allows Process with AI to request a fresh suggestion.
 - [x] Use more intuitive Inbox, Saved, and Profile tab icons.
 - [x] Match top heading styles and placement across tabs, and label the Home tab heading.
@@ -41,7 +41,7 @@ Things to fix:
 - [x] Exporting data downloads a JSON file to device storage.
 - [x] Removed the unnecessary private inbox reference from the Home tab.
 - [x] Unified tab eyebrow, title, and subtitle typography.
-- [x] Matched the BrainDump header logo colors and letter styling to the login page.
+- [x] Matched the Aporia header logo colors and letter styling to the login page.
 - [x] Changed tab transitions to fade and removed tab swiping.
 - [x] Added a confirmed delete X to Daily Review.
 - [x] Removed the Open daily review action from Inbox.

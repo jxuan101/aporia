@@ -1,7 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import * as SecureStore from "expo-secure-store";
 
-import { SESSION_KEY } from "./session";
+import { getSessionToken } from "./session";
 
 type AuthSessionContextValue = {
   sessionToken: string | null;
@@ -17,7 +16,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true;
-    void SecureStore.getItemAsync(SESSION_KEY)
+    void getSessionToken()
       .then((token) => {
         if (active) setSessionToken(token);
       })

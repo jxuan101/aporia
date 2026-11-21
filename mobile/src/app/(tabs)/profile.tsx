@@ -7,7 +7,7 @@ import { exportCaptures, revokeSession } from "../../lib/api";
 import { downloadCaptureExport } from "../../lib/export";
 import { clearGoogleSignIn } from "../../lib/google-auth";
 import { SESSION_KEY } from "../../lib/session";
-import { BrainDumpHeader } from "../../components/BrainDumpHeader";
+import { AporiaHeader } from "../../components/AporiaHeader";
 import { useAuthSession } from "../../lib/auth-session";
 import { tabTypography } from "../../theme/tabTypography";
 
@@ -65,12 +65,12 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={styles.screen}>
-      <BrainDumpHeader />
+      <AporiaHeader />
       <View style={styles.content}>
         <Text style={tabTypography.eyebrow}>PROFILE</Text>
         <Text accessibilityRole="header" style={tabTypography.title}>Account</Text>
         <Text style={tabTypography.subtitle}>
-          Manage your BrainDump data and account on this device.
+          Manage your Aporia data and account on this device.
         </Text>
         {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
         <Pressable accessibilityRole="button" disabled={busy} onPress={() => void exportData()} style={styles.action}>

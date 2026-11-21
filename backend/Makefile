@@ -25,8 +25,8 @@ migrate: ## Apply pending database migrations
 test: ## Run tests that do not require a database
 	$(PYTHON) -m pytest -q
 
-integration-test: ## Run all tests with BRAINDUMP_TEST_DATABASE_URL set
-	@test -n "$$BRAINDUMP_TEST_DATABASE_URL" || (echo 'Set BRAINDUMP_TEST_DATABASE_URL to a dedicated *_test database.' >&2; exit 1)
+integration-test: ## Run all tests with APORIA_TEST_DATABASE_URL set
+	@test -n "$$APORIA_TEST_DATABASE_URL" || (echo 'Set APORIA_TEST_DATABASE_URL to a dedicated *_test database.' >&2; exit 1)
 	$(PYTHON) -m pytest -q
 
 lint: ## Check backend Python lint rules

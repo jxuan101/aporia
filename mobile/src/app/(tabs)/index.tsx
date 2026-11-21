@@ -34,7 +34,7 @@ import {
 } from "../../lib/api";
 import { useAuthSession } from "../../lib/auth-session";
 import { SESSION_KEY } from "../../lib/session";
-import { BrainDumpHeader } from "../../components/BrainDumpHeader";
+import { AporiaHeader } from "../../components/AporiaHeader";
 import { tabTypography } from "../../theme/tabTypography";
 import { MAX_CAPTURE_LENGTH, MAX_SEARCH_QUERY_LENGTH } from "../../lib/limits";
 
@@ -822,7 +822,7 @@ export default function InboxScreen() {
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.flex}
       >
-        <BrainDumpHeader />
+        <AporiaHeader />
 
         <ScrollView
           contentContainerStyle={styles.content}
