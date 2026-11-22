@@ -5,10 +5,10 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from psycopg import Connection
 
-from app.auth import current_user_id
-from app.captures import serialize_capture
-from app.database import get_connection
-from app.errors import API_HEADERS, ApiError
+from app.auth.routes import current_user_id
+from app.captures.routes import serialize_capture
+from app.core.database import get_connection
+from app.core.errors import API_HEADERS, ApiError
 
 router = APIRouter(prefix="/api/v1/export")
 

@@ -6,7 +6,7 @@ from uuid import UUID
 
 from psycopg import Connection
 
-from app.text_signals import meaningful_terms
+from app.search.text_signals import meaningful_terms
 
 MAX_RELATED_ITEM_SCAN = 500
 MAX_RELATED_ITEM_CANDIDATES = 5

@@ -3,8 +3,8 @@
 import json
 from collections.abc import Sequence
 
-from app.agent_schema import ProcessingProposal
-from app.related_items import RelatedItemCandidate
+from app.agent.schema import ProcessingProposal
+from app.items.related import RelatedItemCandidate
 
 CAPTURE_PROCESSING_PROMPT_VERSION = "capture-processing-v5"
 

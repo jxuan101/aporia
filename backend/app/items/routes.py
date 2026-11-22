@@ -7,11 +7,11 @@ from fastapi import APIRouter, Depends, Query, Request
 from psycopg import Connection
 from psycopg.types.json import Jsonb
 
-from app.auth import current_user_id
-from app.database import get_connection
-from app.errors import ApiError
-from app.text_signals import meaningful_terms
-from app.validation import capture_id, read_json_body, search_query
+from app.auth.routes import current_user_id
+from app.core.database import get_connection
+from app.core.errors import ApiError
+from app.core.validation import capture_id, read_json_body, search_query
+from app.search.text_signals import meaningful_terms
 
 router = APIRouter(prefix="/api/v1/items")
 PAGE_SIZE = 30

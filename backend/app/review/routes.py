@@ -6,11 +6,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 from psycopg import Connection
 
-from app.auth import current_user_id
-from app.captures import PAGE_SIZE, serialize_capture
-from app.database import get_connection
-from app.errors import ApiError
-from app.validation import capture_id
+from app.auth.routes import current_user_id
+from app.captures.routes import PAGE_SIZE, serialize_capture
+from app.core.database import get_connection
+from app.core.errors import ApiError
+from app.core.validation import capture_id
 
 router = APIRouter(prefix="/api/v1/review")
 

@@ -10,15 +10,15 @@ from uuid import UUID
 import psycopg
 from psycopg.types.json import Jsonb
 
-from app.config import AI_DAILY_PROCESSING_LIMIT
-from app.model_adapter import (
+from app.agent.model_adapter import (
     ModelAdapter,
     ModelAdapterError,
     ModelOutputError,
     ModelProposalResult,
     ModelTemporarilyUnavailable,
 )
-from app.related_items import RelatedItemCandidate, find_related_item_candidates
+from app.core.config import AI_DAILY_PROCESSING_LIMIT
+from app.items.related import RelatedItemCandidate, find_related_item_candidates
 
 MAX_ATTEMPTS = 3
 MAX_DAILY_PROCESSING_REQUESTS_PER_USER = AI_DAILY_PROCESSING_LIMIT

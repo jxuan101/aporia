@@ -4,7 +4,7 @@ import psycopg
 from fastapi import Request
 from psycopg.rows import dict_row
 
-from app.config import DATABASE_URL
+from app.core.config import DATABASE_URL
 
 
 def get_connection(request: Request) -> Generator[psycopg.Connection, None, None]:

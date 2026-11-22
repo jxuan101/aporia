@@ -4,11 +4,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Request
 from psycopg import Connection
 
-from app.auth import current_user_id
-from app.database import get_connection
-from app.errors import ApiError
-from app.text_signals import meaningful_terms, normalized_words
-from app.validation import capture_body, capture_id, read_json_body, search_query
+from app.auth.routes import current_user_id
+from app.core.database import get_connection
+from app.core.errors import ApiError
+from app.core.validation import capture_body, capture_id, read_json_body, search_query
+from app.search.text_signals import meaningful_terms, normalized_words
 
 router = APIRouter(prefix="/api/v1/captures")
 PAGE_SIZE = 30

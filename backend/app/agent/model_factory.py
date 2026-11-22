@@ -1,7 +1,7 @@
 """Construct the optional model adapter from backend configuration."""
 
-from app.config import GROQ_API_KEY, GROQ_MODEL
-from app.model_adapter import GroqChatAdapter, ModelAdapter
+from app.agent.model_adapter import GroqChatAdapter, ModelAdapter
+from app.core.config import GROQ_API_KEY, GROQ_MODEL
 
 
 def configured_model_adapter() -> ModelAdapter | None:

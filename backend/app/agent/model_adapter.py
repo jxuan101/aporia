@@ -8,17 +8,17 @@ from uuid import UUID
 
 from groq import APIConnectionError, APIStatusError, APITimeoutError, Groq
 
-from app.agent_prompts import (
+from app.agent.prompts import (
     CAPTURE_PROCESSING_PROMPT_VERSION,
     build_capture_processing_messages,
 )
-from app.agent_schema import (
+from app.agent.schema import (
     MAX_PROPOSAL_JSON_BYTES,
     ProcessingProposal,
     ValidationError,
     validate_proposal_json,
 )
-from app.related_items import RelatedItemCandidate
+from app.items.related import RelatedItemCandidate
 
 REQUEST_TIMEOUT_SECONDS = 30
 MAX_COMPLETION_TOKENS = 3_000

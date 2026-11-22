@@ -8,15 +8,15 @@ from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2 import id_token
 from psycopg import Connection
 
-from app.config import GOOGLE_WEB_CLIENT_ID
-from app.database import get_connection
-from app.errors import ApiError
-from app.rate_limit import (
+from app.core.config import GOOGLE_WEB_CLIENT_ID
+from app.core.database import get_connection
+from app.core.errors import ApiError
+from app.core.rate_limit import (
     GOOGLE_SIGN_IN_LIMITS,
     USER_REQUEST_LIMITS,
     enforce_rate_limit,
 )
-from app.validation import bearer_token, read_json_body
+from app.core.validation import bearer_token, read_json_body
 
 router = APIRouter(prefix="/api/v1/auth")
 SESSION_DURATION = timedelta(days=30)

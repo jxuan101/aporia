@@ -4,7 +4,7 @@ from urllib.parse import urlparse
 import psycopg
 from psycopg.rows import dict_row
 
-from app.config import DATABASE_URL
+from app.core.config import DATABASE_URL
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[1] / "migrations"
 MIGRATION_TABLE = "aporia_schema_migrations"

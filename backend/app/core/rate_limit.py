@@ -5,7 +5,7 @@ from typing import Final
 
 from psycopg import Connection
 
-from app.errors import ApiError
+from app.core.errors import ApiError
 
 USER_REQUEST_LIMITS: Final[tuple[tuple[int, int], ...]] = (
     (1, 10),

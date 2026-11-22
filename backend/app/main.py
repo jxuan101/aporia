@@ -1,13 +1,13 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from app.agent_routes import router as agent_router
-from app.auth import router as auth_router
-from app.captures import router as captures_router
-from app.errors import API_HEADERS, ApiError, api_error_handler
-from app.export import router as export_router
-from app.items import router as items_router
-from app.review import router as review_router
+from app.agent.routes import router as agent_router
+from app.auth.routes import router as auth_router
+from app.captures.routes import router as captures_router
+from app.core.errors import API_HEADERS, ApiError, api_error_handler
+from app.export.routes import router as export_router
+from app.items.routes import router as items_router
+from app.review.routes import router as review_router
 
 app = FastAPI(
     title="Aporia API",

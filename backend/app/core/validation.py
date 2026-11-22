@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import Request
 
-from app.errors import ApiError
+from app.core.errors import ApiError
 
 MAX_CAPTURE_LENGTH = 10_000
 MAX_SEARCH_QUERY_LENGTH = 200

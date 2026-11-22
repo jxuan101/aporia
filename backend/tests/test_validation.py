@@ -1,7 +1,7 @@
 import pytest
 
-from app.errors import ApiError
-from app.validation import capture_body, capture_text, search_query
+from app.core.errors import ApiError
+from app.core.validation import capture_body, capture_text, search_query
 
 
 def test_capture_body_preserves_original_whitespace() -> None:

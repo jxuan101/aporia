@@ -5,17 +5,17 @@ import httpx
 import pytest
 from groq import APIStatusError, RateLimitError
 
-from app.agent_prompts import (
-    CAPTURE_PROCESSING_PROMPT_VERSION,
-    build_capture_processing_messages,
-)
-from app.agent_schema import ProcessingProposal
-from app.model_adapter import (
+from app.agent.model_adapter import (
     GroqChatAdapter,
     ModelAdapterError,
     ModelOutputError,
     ModelTemporarilyUnavailable,
 )
+from app.agent.prompts import (
+    CAPTURE_PROCESSING_PROMPT_VERSION,
+    build_capture_processing_messages,
+)
+from app.agent.schema import ProcessingProposal
 
 CAPTURE = "Think about who the newsletter is for next Friday."
 
@@ -77,7 +77,7 @@ def test_groq_adapter_sends_json_mode_and_returns_validated_proposal(
             return fake_completion(proposal_payload())
 
     monkeypatch.setattr(
-        "app.model_adapter.Groq",
+        "app.agent.model_adapter.Groq",
         lambda **kwargs: (
             observed.update(kwargs)
             or SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
@@ -116,7 +116,7 @@ def test_groq_adapter_rejects_unverifiable_task_evidence(
             return fake_completion(invalid_proposal)
 
     monkeypatch.setattr(
-        "app.model_adapter.Groq",
+        "app.agent.model_adapter.Groq",
         lambda **_kwargs: SimpleNamespace(
             chat=SimpleNamespace(completions=FakeCompletions())
         ),
@@ -153,7 +153,7 @@ def test_groq_adapter_reports_safe_provider_rejection_details(
             raise provider_error
 
     monkeypatch.setattr(
-        "app.model_adapter.Groq",
+        "app.agent.model_adapter.Groq",
         lambda **_kwargs: SimpleNamespace(
             chat=SimpleNamespace(completions=FakeCompletions())
         ),
@@ -190,7 +190,7 @@ def test_groq_adapter_marks_rate_limit_as_retryable(
             raise provider_error
 
     monkeypatch.setattr(
-        "app.model_adapter.Groq",
+        "app.agent.model_adapter.Groq",
         lambda **_kwargs: SimpleNamespace(
             chat=SimpleNamespace(completions=FakeCompletions())
         ),

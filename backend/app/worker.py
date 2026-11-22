@@ -6,9 +6,9 @@ import time
 import psycopg
 from psycopg.rows import dict_row
 
-from app.agent_jobs import POLL_INTERVAL_SECONDS, process_next_job
-from app.config import DATABASE_URL
-from app.model_factory import configured_model_adapter
+from app.agent.jobs import POLL_INTERVAL_SECONDS, process_next_job
+from app.agent.model_factory import configured_model_adapter
+from app.core.config import DATABASE_URL
 
 logger = logging.getLogger("aporia.agent_worker")
 

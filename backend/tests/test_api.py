@@ -9,16 +9,18 @@ import pytest
 from fastapi.testclient import TestClient
 from psycopg.rows import dict_row
 
-from app import agent_jobs, agent_routes, auth
-from app.agent_jobs import process_next_job
-from app.agent_schema import ProcessingProposal
-from app.main import app
-from app.migrate import migrate_database, validate_test_database_url
-from app.model_adapter import (
+from app.agent import jobs as agent_jobs
+from app.agent import routes as agent_routes
+from app.agent.jobs import process_next_job
+from app.agent.model_adapter import (
     ModelOutputError,
     ModelProposalResult,
     ModelTemporarilyUnavailable,
 )
+from app.agent.schema import ProcessingProposal
+from app.auth import routes as auth
+from app.main import app
+from app.migrate import migrate_database, validate_test_database_url
 
 TEST_DATABASE_URL = os.getenv("APORIA_TEST_DATABASE_URL")
 

@@ -7,22 +7,22 @@ from fastapi import APIRouter, Depends, Request
 from psycopg import Connection
 from pydantic import ValidationError
 
-from app.agent_jobs import (
+from app.agent.jobs import (
     MAX_DAILY_PROCESSING_REQUESTS_PER_USER,
     ProcessingUsageLimitError,
     enqueue_capture_job,
     get_job_for_user,
 )
-from app.agent_review import (
+from app.agent.model_factory import configured_model_adapter
+from app.agent.review import (
     ReviewConflictError,
     accept_suggestion,
     reject_suggestion,
 )
-from app.auth import current_user_id
-from app.database import get_connection
-from app.errors import ApiError
-from app.model_factory import configured_model_adapter
-from app.validation import read_json_body
+from app.auth.routes import current_user_id
+from app.core.database import get_connection
+from app.core.errors import ApiError
+from app.core.validation import read_json_body
 
 router = APIRouter(prefix="/api/v1")
 

@@ -6,7 +6,7 @@ from uuid import UUID
 import psycopg
 from psycopg.types.json import Jsonb
 
-from app.agent_schema import validate_proposal_data
+from app.agent.schema import validate_proposal_data
 
 
 class ReviewConflictError(Exception):
