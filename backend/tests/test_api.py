@@ -95,6 +95,12 @@ def client(
         "configured_model_adapter",
         lambda: FixedProposalAdapter(),
     )
+    # Keep burst-limit behavior from making fast integration tests timing-sensitive.
+    monkeypatch.setattr(
+        auth,
+        "USER_REQUEST_LIMITS",
+        ((1, 1_000), (60, 10_000), (3_600, 100_000)),
+    )
     app.state.connection_factory = lambda: psycopg.connect(
         database_url,
         row_factory=dict_row,
@@ -547,7 +553,7 @@ def test_accepting_edited_proposal_creates_one_user_owned_item(
     approved = dict(suggestion["proposal"])
     approved["title"] = "Return the library book"
     approved["summary"] = "Return the book to the library this week."
-    approved["related_item_ids"] = [str(uuid.uuid4())]
+    approved["related_item_ids"] = []
     suggestion_id = suggestion["id"]
 
     hidden = client.post(
